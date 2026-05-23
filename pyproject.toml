@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "Cython>=3.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mechatree"
+version = "0.0.0.dev0"
+description = "Mechanical simulation of tree growth in response to wind and light."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+authors = [
+    { name = "Christophe Eloy", email = "christopheloy@gmail.com" },
+]
+keywords = ["tree", "biomechanics", "growth", "simulation", "allometry", "wind"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "pre-commit>=3.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/celoy/MechaTree"
+Paper = "https://doi.org/10.1038/s41467-017-00995-6"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mechatree = ["py.typed"]
+
+# Cython/C++ extension modules will be added here once the intern's C++/Cython
+# code (currently in archive/) is ported into src/mechatree/. Example shape:
+#
+# from setuptools import Extension
+# from Cython.Build import cythonize
+# ext_modules = cythonize([
+#     Extension("mechatree._core", ["src/mechatree/_core.pyx", "src/mechatree/branch.cpp", "src/mechatree/tree.cpp"],
+#               language="c++", extra_compile_args=["-std=c++17", "-O3"]),
+# ])
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["archive", "legacy_fortran"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
