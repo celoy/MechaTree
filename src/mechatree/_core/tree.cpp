@@ -125,31 +125,37 @@ int Tree::getIndex(const Branch* branch) const {
 // ---------- hierarchy --------------------------------------------------------
 
 void Tree::setStrahler() {
+    // Generalised Horton-Strahler rule, valid for any branching factor:
+    //   - Leaves (no children): order = 1.
+    //   - Internal node with children of orders s_1, ..., s_k:
+    //       * if two or more children share the max order m, then
+    //         this node's order = m + 1;
+    //       * otherwise this node's order = max(s_1, ..., s_k).
+    //   - A node with a single child inherits the child's order
+    //     (one-child internal nodes arise after pruning lops a single
+    //     twig off a pair).
     Strahler_distribution.clear();
     for (auto rit = tree_branches.rbegin(); rit != tree_branches.rend(); ++rit) {
         Branch* b = *rit;
-        if (!b->hasChildren()) {
+        const auto& kids = b->getChildren();
+        if (kids.empty()) {
             b->setStrahler(1);
             Strahler_distribution[1] += 1;
             continue;
         }
-
-        const auto& kids = b->getChildren();
-        if (kids.size() != 2) {
-            throw std::runtime_error(
-                "Tree::setStrahler: only binary trees are supported "
-                "(branch has " + std::to_string(kids.size()) + " children)");
+        int max_order = 0;
+        for (const Branch* c : kids) {
+            max_order = std::max(max_order, c->getStrahler());
         }
-
-        const int s1 = kids[0]->getStrahler();
-        const int s2 = kids[1]->getStrahler();
-        if (s1 == s2) {
-            b->setStrahler(s1 + 1);
-            Strahler_distribution[s1 + 1] += 1;
-        } else {
-            b->setStrahler(std::max(s1, s2));
-            // contiguous branches of the same order count as one
+        int count_at_max = 0;
+        for (const Branch* c : kids) {
+            if (c->getStrahler() == max_order) {
+                ++count_at_max;
+            }
         }
+        const int order = (count_at_max >= 2) ? (max_order + 1) : max_order;
+        b->setStrahler(order);
+        Strahler_distribution[order] += 1;
     }
 }
 
@@ -174,27 +180,30 @@ void Tree::setHorton() {
         if (kids.empty()) {
             continue;
         }
-        if (kids.size() != 2) {
-            throw std::runtime_error(
-                "Tree::setHorton: only binary trees are supported "
-                "(branch has " + std::to_string(kids.size()) + " children)");
-        }
 
-        const int s1 = kids[0]->getStrahler();
-        const int s2 = kids[1]->getStrahler();
         const int hortondad = b->getHorton();
-
-        if (s1 >= s2) {
-            kids[0]->setHorton(hortondad);
-            kids[1]->setHorton(s2);
-            Horton_distribution[s2] += 1;
-        } else {
-            kids[1]->setHorton(hortondad);
-            kids[0]->setHorton(s1);
-            Horton_distribution[s1] += 1;
+        // Find the child with the largest Strahler order; that child
+        // inherits the parent's Horton number. Every other child becomes
+        // the head of its own Horton chain at its own Strahler order.
+        // Ties on the max are broken by depth-first order (first wins).
+        int max_strahler = -1;
+        Branch* inheriting = nullptr;
+        for (Branch* c : kids) {
+            const int s = c->getStrahler();
+            if (s > max_strahler) {
+                max_strahler = s;
+                inheriting = c;
+            }
         }
-        // When the two children have equal order we arbitrarily pass the
-        // parent's Horton order down the first child.
+        for (Branch* c : kids) {
+            if (c == inheriting) {
+                c->setHorton(hortondad);
+            } else {
+                const int s = c->getStrahler();
+                c->setHorton(s);
+                Horton_distribution[s] += 1;
+            }
+        }
     }
 }
 

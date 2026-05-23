@@ -75,3 +75,38 @@ def test_custom_simulation_runs(tmp_path):
     assert "default" in result.stdout
     assert "steady-west" in result.stdout
     assert "calm-then-storm" in result.stdout
+
+
+# --- MATLAB plot ports + Blender exporter ---------------------------------
+
+
+def test_plot_self_thinning_runs(tmp_path):
+    result = _run(
+        "plot_self_thinning.py",
+        "--no-show",
+        "--n-trees-init",
+        "5",
+        "--n-trees-max",
+        "30",
+        "--size",
+        "15",
+        cwd=tmp_path,
+    )
+    assert "M (biomass)" in result.stdout
+
+
+def test_plot_allocation_runs(tmp_path):
+    result = _run("plot_allocation.py", "--no-show", cwd=tmp_path)
+    assert "reserve" in result.stdout
+
+
+def test_plot_strahler_runs(tmp_path):
+    result = _run("plot_strahler.py", "--no-show", cwd=tmp_path)
+    assert "Strahler max order" in result.stdout
+
+
+def test_render_blender_writes_script(tmp_path):
+    out_base = tmp_path / "my_render"
+    result = _run("render_blender.py", "--output", str(out_base), cwd=tmp_path)
+    assert "Wrote:" in result.stdout
+    assert out_base.with_suffix(".py").exists()

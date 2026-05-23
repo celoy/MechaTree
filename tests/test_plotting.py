@@ -5,8 +5,16 @@ from matplotlib.figure import Figure
 from mechatree import PyTree
 from mechatree.config import Config, ForestConfig
 from mechatree.forest import Forest
-from mechatree.plotting import plot_2d, plot_3d, plot_forest_topdown, plot_tree_3d
-from mechatree.simulate import grow_tree
+from mechatree.plotting import (
+    plot_2d,
+    plot_3d,
+    plot_allocation,
+    plot_forest_topdown,
+    plot_self_thinning,
+    plot_strahler_diagnostics,
+    plot_tree_3d,
+)
+from mechatree.simulate import TreeStats, grow_tree
 
 
 @pytest.fixture
@@ -107,4 +115,71 @@ def test_plot_forest_topdown_handles_empty_forest():
     forest.ages.clear()
     fig = plot_forest_topdown(forest)
     assert isinstance(fig, Figure)
+    plt.close(fig)
+
+
+# --- MATLAB plot ports: stats helpers --------------------------------------
+
+
+def test_plot_self_thinning_with_tuples():
+    history = [(g, 10 + g, 0.5 * (1 + g)) for g in range(20)]
+    fig = plot_self_thinning(history)
+    assert isinstance(fig, Figure)
+    # 1x3 grid.
+    assert len(fig.axes) == 3
+    plt.close(fig)
+
+
+def test_plot_self_thinning_with_forest_stats():
+    """The helper accepts ForestStats objects via duck-typing."""
+    cfg = Config(forest=ForestConfig(size=10.0, n_trees_init=4, n_trees_max=50))
+    forest = Forest(cfg, seed=0)
+    history = []
+
+    def cb(_gen, _f, stats):
+        history.append(stats)
+
+    forest.run(5, on_step=cb)
+    fig = plot_self_thinning(history)
+    assert isinstance(fig, Figure)
+    plt.close(fig)
+
+
+def test_plot_self_thinning_handles_empty_history():
+    """An empty history still produces a (degenerate but valid) figure."""
+    fig = plot_self_thinning([])
+    assert isinstance(fig, Figure)
+    plt.close(fig)
+
+
+def test_plot_allocation_with_tree_stats():
+    history = []
+
+    def cb(_gen, _tree, stats):
+        history.append(stats)
+
+    grow_tree(Config(), n_generations=10, seed=0, on_step=cb)
+    assert len(history) == 10
+    # All entries are TreeStats.
+    assert isinstance(history[0], TreeStats)
+
+    fig = plot_allocation(history, volume_twig=0.01)
+    assert isinstance(fig, Figure)
+    plt.close(fig)
+
+
+def test_plot_strahler_diagnostics_grown_tree():
+    tree = grow_tree(Config(), n_generations=20, seed=0)
+    fig = plot_strahler_diagnostics(tree)
+    assert isinstance(fig, Figure)
+    # 2x2 grid.
+    assert len(fig.axes) == 4
+    plt.close(fig)
+
+
+def test_plot_strahler_diagnostics_with_user_axes():
+    tree = grow_tree(Config(), n_generations=20, seed=0)
+    fig, axes = plt.subplots(2, 2, figsize=(8, 6))
+    returned = plot_strahler_diagnostics(tree, ax=axes.ravel())
+    assert returned is fig
     plt.close(fig)

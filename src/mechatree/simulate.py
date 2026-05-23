@@ -17,8 +17,10 @@ work inside each phase.
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -36,7 +38,30 @@ from mechatree.pruning import prune
 # and prune) is seeded separately.
 WindFn = Callable[[int, np.random.Generator], tuple[float, float, float]]
 
-OnStep = Callable[[int, PyTree], None]
+# ``on_step`` callback. Two forms are accepted for backward compatibility:
+#   - ``cb(generation, tree)`` — original Step-11 signature
+#   - ``cb(generation, tree, stats)`` — receives per-step bookkeeping
+# Arity is detected automatically.
+OnStep = Callable[..., None]
+
+
+@dataclass
+class TreeStats:
+    """Per-step bookkeeping for ``grow_tree`` — mirrors the columns of the
+    Fortran ``ZAllocation.dat`` file (``mod_tools.f90`` ``save_allocation``).
+
+    Exposed via the 3-arg form of the ``on_step`` callback.
+    """
+
+    generation: int
+    n_branches: int
+    n_leaves: int
+    wind: tuple[float, float, float]
+    wind_amplitude: float
+    n_twigs_created: int  # branches added by primary_growth (always even)
+    n_seeds: int  # seeds "dropped to ground" — pays into the reserve
+    n_pruned: int  # branches removed by prune (including subtrees)
+    reserve: float
 
 
 def default_wind_fn(generation: int, rng: np.random.Generator) -> tuple[float, float, float]:
@@ -140,6 +165,8 @@ def grow_tree(
     if wind_fn is None:
         wind_fn = default_wind_fn
 
+    cb_arity = _callback_arity(on_step) if on_step is not None else 0
+
     tree = make_seed_tree(tree_cfg)
     tree.set_seed(seed & 0xFFFFFFFF)
     tree.reorder()
@@ -163,14 +190,16 @@ def grow_tree(
 
         # 4. Pruning under per-generation wind.
         wind = wind_fn(gen, rng)
-        prune(tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy)
+        n_pruned = prune(
+            tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy
+        )
         tree.reorder()
 
         # 5. Primary growth (new twig pairs). Snapshot reserve BEFORE the call
         # so the seed-cost mirrors the Fortran's pre-call R0.
         reserve_before = tree.get_reserve()
         n_leaves_before = tree.get_total_leaves()
-        primary_growth(
+        n_twigs = primary_growth(
             tree,
             allocation,
             twig_length=tree_cfg.twig_length,
@@ -182,8 +211,8 @@ def grow_tree(
             generation=gen,
         )
 
-        # 6. Reserve depletion for the seeds primary_growth "drops" (no forest
-        # in Step 11, but the energy cost matches Fortran's tree.f90:205).
+        # 6. Reserve depletion for the seeds primary_growth "drops".
+        n_seeds = 0
         if n_leaves_before > 0 and reserve_before > 0.0:
             vol_relative = reserve_before / n_leaves_before / volume_twig
             p_seeds, _, _ = allocation.compute(n_leaves_before, vol_relative)
@@ -194,9 +223,52 @@ def grow_tree(
         tree.reorder()
 
         if on_step is not None:
-            on_step(gen, tree)
+            if cb_arity >= 3:
+                stats = TreeStats(
+                    generation=gen,
+                    n_branches=tree.get_number_of_branches(),
+                    n_leaves=tree.get_total_leaves(),
+                    wind=wind,
+                    wind_amplitude=math.hypot(wind[0], wind[1]),
+                    n_twigs_created=n_twigs,
+                    n_seeds=n_seeds,
+                    n_pruned=n_pruned,
+                    reserve=tree.get_reserve(),
+                )
+                on_step(gen, tree, stats)
+            else:
+                on_step(gen, tree)
 
     return tree
 
 
-__all__ = ["WindFn", "OnStep", "default_wind_fn", "grow_tree", "make_seed_tree"]
+def _callback_arity(fn: Callable) -> int:
+    """Number of positional args the callback expects.
+
+    Used to decide whether to pass ``TreeStats`` to a step callback —
+    keeps the Step-11 ``cb(gen, tree)`` signature working while letting
+    new code opt into ``cb(gen, tree, stats)``.
+    """
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return 2  # builtin / C function — assume the original signature
+    return sum(
+        1
+        for p in sig.parameters.values()
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    )
+
+
+__all__ = [
+    "OnStep",
+    "TreeStats",
+    "WindFn",
+    "default_wind_fn",
+    "grow_tree",
+    "make_seed_tree",
+]
