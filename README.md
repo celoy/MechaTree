@@ -14,7 +14,7 @@ Pre-release / port in progress. The repository currently contains:
 
 - `src/mechatree/` — the modern Python package (skeleton; real code lands in Step 2).
 - `legacy_fortran/` — the Fortran90 sources from the 2017 paper, for reference.
-- `archive/` — a 2017 intern Python+Cython+C++ port, kept for provenance. **Not** imported by the modern package.
+- `archive/` — Diego Bengochea Paz's 2017 Python+Cython+C++ port, kept for provenance. **Not** imported by the modern package.
 
 ## Install
 
@@ -34,6 +34,10 @@ uv run pytest
 ```
 
 See [CLAUDE.md](./CLAUDE.md) for the project's full layout, conventions, and step-by-step modernization plan.
+
+## Acknowledgments
+
+The original Python + Cython + C++ port of the simulator was written in 2017 by **Diego Bengochea Paz** (ORCID [0000-0002-0835-3981](https://orcid.org/0000-0002-0835-3981)) during an internship. That code is preserved under `archive/` for provenance, and the ongoing modernization in `src/mechatree/` is a direct descendant of his work.
 
 ## License
 

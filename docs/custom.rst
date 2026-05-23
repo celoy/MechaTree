@@ -10,16 +10,33 @@ deformation or stress, and an arsenal of adapted functions for computing
 those properties. Accessing these features from external modules keeps the
 core simulation programs lean.
 
-.. note::
+Two such modules ship today: a plotting subpackage and a geometry
+subpackage that implements a 2D self-avoidance test. They were ported
+from Diego Bengochea Paz's 2017 Cython modules to pure Python.
 
-   The intern's 2017 port shipped a small set of optional Cython modules
-   (``mod_plot``, ``mod_dist``, ``mod_3Dplot``) and example scripts for
-   self-avoiding growth and sap transport. These are not yet ported into
-   the modern ``mechatree`` package — they remain available under
-   ``archive/`` in the repository for reference.
 
-   The mechanism for declaring and shipping user-supplied Cython modules
-   will be revisited as part of a later release. The recommended approach
-   today is to add your own Cython source to ``src/mechatree/_core/`` (or
-   a sibling subpackage), declare it as an additional ``Extension`` in
-   ``setup.py``, and rebuild with ``uv pip install -e ".[dev]"``.
+``mechatree.plotting``
+======================
+
+.. automodule:: mechatree.plotting._2d
+   :members:
+
+.. automodule:: mechatree.plotting._3d
+   :members:
+
+
+``mechatree.geometry``
+======================
+
+.. automodule:: mechatree.geometry.distance
+   :members:
+
+
+Adding your own subpackage
+==========================
+
+The recommended approach is to add a new subdirectory under
+``src/mechatree/`` containing your Python (or Cython) sources, plus an
+``__init__.py`` that re-exports the public API. For Cython sources,
+declare an additional ``Extension`` in ``setup.py`` and rebuild with
+``uv pip install -e ".[dev]"``.

@@ -101,3 +101,23 @@ distribution with ``get_strahler_distribution()`` /
 
    tree.set_strahler()
    print(tree.get_strahler_distribution())
+
+
+Examples
+========
+
+Runnable demos live under ``examples/`` at the repository root:
+
+- ``examples/random_growth.py`` — 3D random growth, rendered with
+  :func:`mechatree.plotting.plot_3d`.
+- ``examples/self_avoiding.py`` — 2D coral-like growth with
+  self-avoidance, using :func:`mechatree.geometry.distance_test` and
+  saving snapshots via :func:`mechatree.plotting.plot_2d`.
+- ``examples/sap_transport.py`` — resource-allocation model where
+  branches grow and prune based on a sap-reserve balance.
+
+Each script exposes ``--iterations N`` and ``--seed N`` flags:
+
+.. code-block:: bash
+
+   uv run python examples/random_growth.py --iterations 100 --seed 42

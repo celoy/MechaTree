@@ -1,133 +1,74 @@
 /*
-This is the declaration of the branch class.
-*/
+ * Declaration of the Branch class.
+ *
+ * A Branch is the elementary constituent of a Tree: a node carrying named
+ * scalar properties, a parent link, and a children list. Branches do NOT own
+ * their children — the enclosing Tree owns all Branch* lifetimes (see tree.h).
+ */
 
 #ifndef BRANCH_H_
 #define BRANCH_H_
 
-#include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
-#include <map>
-using namespace std;
 
-class Branch{
-
-  /*
-  This is a formalization of the concept of a branch. Branches are seen as the
-  elementary constituents of a tree. Branches are characterized by a set of
-  properties, a set of family links (with its parents and children), and a set
-  of orders characterizing their place in the tree hierarchy. It can be seen as
-  the generalization of the branch class in a binary tree.
-  */
-
+class Branch {
 private:
-      /*
-      All the attributes of the class are private and hence cannot be accesed
-      from external programs.
+    // unordered_map: O(1) average property lookup vs O(log N) for std::map.
+    // Iteration order doesn't matter — no caller relies on it.
+    std::unordered_map<std::string, double> properties;
 
-      1) "properties" is a map containing the set of properties of a branch. A
-      property is given by a couple name-value. The name is of type string and
-      the value of type double.
+    // Single nullable pointer rather than a vector — Branch invariants only
+    // ever allow one parent. Saves a heap allocation and indirection per
+    // Branch.
+    Branch* parent = nullptr;
 
-      2) "parent" is a vector containing only one pointer to a branch which
-      is the parent of the current branch. The pointer is stocked in a vector
-      in order to use the memory management of that built-in class.
-
-      3) "children" is a vector containing pointers to the branches which are
-      the children of the current branch. The children can be dinamically
-      allocated.
-
-      4) "strahler" is an integer representing the strahler order of the current
-      branch
-
-      5) "horton" is an integer representing the horton order of the current
-      branch
-
-      */
-
-      map<string, double> properties;
-
-      vector<Branch*> parent;
-      vector<Branch*> children;
-
-      int strahler;
-      int horton;
+    std::vector<Branch*> children;
+    int strahler = 0;
+    int horton = 0;
 
 public:
+    Branch();
+    ~Branch() = default;
 
-      /*
-      All the methods of the class are public and are designed to manipulate
-      the private attributes. This methods can be accessed from an external
-      program.
+    // properties
+    void addProperty(const std::string& name, double value);
+        // throws std::invalid_argument if `name` already exists
+    void setProperty(const std::string& name, double value);
+        // throws std::out_of_range if `name` does not exist
+    void setProperties(const std::unordered_map<std::string, double>& props);
+    double getProperty(const std::string& name) const;
+        // throws std::out_of_range if `name` does not exist
 
-      The methods can be classified in the following way:
+    // parent
+    bool hasParent() const;
+    bool hasParent(const Branch* test) const;
+    void addParent(Branch* p);
+        // throws std::invalid_argument if this branch already has a parent
+    void removeParent(const Branch* p);
+        // throws std::invalid_argument if `p` is not the current parent
+    void removeParent();
+        // no-op if this branch has no parent (e.g. the trunk)
+    Branch* getParent() const;
+        // returns nullptr if this branch has no parent
 
-      1) Class constructor
-      2) Interact with branch properties (add, get & set)
-      3) Interact with branch parent (has, add, remove & get)
-      4) Interact with branch children (has, add, remove & get)
-      5) Interact with branch orders (set & get)
+    // children
+    bool hasChildren() const;
+    bool hasChild(const Branch* test) const;
+    void addChild(Branch* ch);
+        // throws std::invalid_argument if `ch` is already a child
+    void removeChild(const Branch* ch);
+        // throws std::invalid_argument if `ch` is not a child
+    void removeChildren();
+    const std::vector<Branch*>& getChildren() const;
+    std::vector<Branch*> getBrothers() const;
 
-      */
-
-//////CONSTRUCTOR//////////////////////////////////////////////////////////////
-      Branch();
-        /* nullary constructor */
-//////PROPERTIES///////////////////////////////////////////////////////////////
-      void addProperty(string name, double value );
-        /* adds the property "name" with value "value" */
-      void setProperty(string name, double value);
-        /* changes the value of property "name" to "value"*/
-      void setProperties(map<string,double> props);
-        /* attribute properties receives the map "props" */
-      double getProperty(string name);
-        /* returns the value of the property "name" */
-
-//////PARENT///////////////////////////////////////////////////////////////////
-      bool hasParent();
-        /* returns True if branch has parent, False if it doesn't */
-      bool hasParent(Branch*test);
-        /* returns True if "*test" is the parent, False if it isn't */
-      void addParent(Branch*p);
-        /* adds "*p" to the vector "parent" */
-      void removeParent(Branch*p);
-        /* removes "*p" from the vector "parent" */
-      void removeParent();
-        /* removes the parent */
-      Branch* getParent();
-        /* returns a pointer to the parent */
-
-//////CHILDREN/////////////////////////////////////////////////////////////////
-      bool hasChildren();
-        /* returns True if branch has children, False if it doesn't */
-      bool hasChild(Branch*test);
-        /* returns True if "*test" is a child, False if it isn't */
-      void addChild(Branch*ch);
-        /* adds "*ch" to the vector "children" */
-      void removeChild(Branch*ch);
-        /* removes "*ch" from the vector "children" */
-      void removeChildren();
-        /* removes all the elements of the vector "children" */
-      void removeDescendants();
-        /* removes all the elements of the vector "children" and repeats the
-         operation for all the children in the descendance */
-      vector<Branch*> getChildren();
-        /* returns the vector "children" */
-      vector<Branch*> getBrothers();
-        /* returns a vector containing pointers to all the brothers of the
-         branch */
-
-//////BRANCH HIERARCHY/////////////////////////////////////////////////////////
-      void setStrahler(int strahler_index);
-        /* sets the attribute "strahler" to "strahler_index" */
-      int getStrahler();
-        /* returns the value of the attribute "strahler" */
-      void setHorton(int horton_index);
-        /* sets the attribute "horton" to "horton_index" */
-      int getHorton();
-        /* returns the value of the attribute "horton" */
-
+    // hierarchy
+    void setStrahler(int strahler_index);
+    int getStrahler() const;
+    void setHorton(int horton_index);
+    int getHorton() const;
 };
 
 #endif

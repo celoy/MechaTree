@@ -16,15 +16,20 @@ keywords = ["tree", "biomechanics", "growth", "simulation", "allometry", "wind"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Science/Research",
-    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Physics",
 ]
-dependencies = []
+dependencies = [
+    "matplotlib>=3.7",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -66,3 +71,16 @@ docstring-code-format = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "slow: large-tree or long-running tests (opt in with `-m slow`)",
+]
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-*"
+skip = "pp* *-musllinux_* *_i686 *-win32"
+test-requires = ["pytest"]
+test-command = "pytest {project}/tests -m \"not slow\""
+build-verbosity = 1
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]

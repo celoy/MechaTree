@@ -1,37 +1,35 @@
 #distutils: language=c++
 
-import sys
-import cython
-from libcpp.string cimport string
-from libcpp.vector cimport vector
 from libcpp.map cimport map
-from libcpp cimport bool
+from libcpp.string cimport string
+from libcpp.unordered_map cimport unordered_map
+from libcpp.vector cimport vector
 
 cdef extern from "tree.h" nogil:
-  cdef cppclass Tree:
-    Tree(map[string, double] trunk_props) except +
+    cdef cppclass Tree:
+        Tree(unordered_map[string, double] trunk_props) except +
 
-    int getNumberOfBranches()
-    map[int,int] getStrahlerDistribution()
-    map[int,int] getHortonDistribution()
-    map[int,double] meanAggregativePropS(string name)
-    map[int,double] meanAggregativePropH(string name)
+        int getNumberOfBranches()
+        const map[int, int]& getStrahlerDistribution()
+        const map[int, int]& getHortonDistribution()
+        map[int, double] meanAggregativePropS(string name) except +
+        map[int, double] meanAggregativePropH(string name) except +
 
-    void setStrahler()
-    int getStrahler(int index)
-    void setHorton()
-    int getHorton(int index)
+        void setStrahler() except +
+        int getStrahler(int index) except +
+        void setHorton() except +
+        int getHorton(int index) except +
 
-    int getLastDescendantIndex(int ancestor_index)
-    int getParentIndex(int child_index)
-    vector[int] getBrothersIndex(int index)
-    vector[int] getChildrenIndex(int index)
-    int hasParent(int index)
-    int getNumberOfChildren(int parent_index)
+        int getLastDescendantIndex(int ancestor_index) except +
+        int getParentIndex(int child_index) except +
+        vector[int] getBrothersIndex(int index) except +
+        vector[int] getChildrenIndex(int index) except +
+        bint hasParent(int index) except +
+        int getNumberOfChildren(int parent_index) except +
 
-    void addBranch(int index,map[string, double] branch_props)
-    void removeBranch(int index)
+        void addBranch(int index, unordered_map[string, double] branch_props) except +
+        void removeBranch(int index) except +
 
-    void addProperty(int index, string name, double value)
-    double getProperty(int index, string name)
-    void setProperty(int index, string name, double value)
+        void addProperty(int index, string name, double value) except +
+        double getProperty(int index, string name) except +
+        void setProperty(int index, string name, double value) except +

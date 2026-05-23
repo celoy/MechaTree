@@ -1,155 +1,102 @@
 /*
-This is the declaration of th Tree class
-*/
+ * Declaration of the Tree class.
+ *
+ * Tree owns the Branch* lifetimes — the destructor deletes every branch in
+ * `tree_branches`. Branches are stored in a depth-first order: a parent is
+ * always immediately followed by its subtree, so [parent_index,
+ * last_descendant_index] is a contiguous range.
+ *
+ * `branch_to_index` mirrors `tree_branches` for O(1) reverse lookup
+ * (Branch* -> index). It is maintained by addBranch/removeBranch and is the
+ * reason topology walks (getParentIndex, getBrothersIndex, getChildrenIndex)
+ * run in O(degree) instead of O(N).
+ */
 
 #ifndef TREE_H_
 #define TREE_H_
 
-#include <memory>
-#include <vector>
 #include <map>
-#include"branch.h"
+#include <string>
+#include <unordered_map>
+#include <vector>
 
-using namespace std;
+#include "branch.h"
 
-class Tree{
-
-  /*
-  This is the formalization of the concept of a tree. The tree is a container of
-  pointers to Branch objects. It is also characterized by its hierarchical
-  organization ("Strahler_distribution" & "Horton_distribution")
-  */
-
+class Tree {
 private:
-      /*
-      All the attributes of the class are private and hence cannot be accesed
-      from external programs.
+    std::vector<Branch*> tree_branches;
+    std::unordered_map<const Branch*, int> branch_to_index;
+    std::map<int, int> Strahler_distribution;
+    std::map<int, int> Horton_distribution;
 
-      1) "tree_branches" is a vector stocking pointers to Branch objects. The
-      branches can be dinamically allocated.
-
-      2) "Strahler_distribution" is a map containing the information about the
-      number of branches per strahler order. The key is the order (an integer)
-      and the value is the number of branches for each order (also an integer).
-
-      3) "Horton_distribution" is a map containing the information about the
-      number of branches per horton order. The key is the order (an integer)
-      and the value is the number of branches for each order (also an integer).
-
-      */
-
-      vector<Branch*> tree_branches;
-
-      map<int,int> Strahler_distribution;
-      map<int,int> Horton_distribution;
+    // shift branch_to_index entries with stored index in [from, INF) by
+    // `delta` (positive when a branch was inserted; negative when erased).
+    void shift_indices(int from, int delta);
 
 public:
-      /*
-      All the methods of the class are public and are designed to manipulate
-      the private attributes. This methods can be accessed from an external
-      program.
+    Tree();
+    explicit Tree(const std::unordered_map<std::string, double>& trunk_props);
+    ~Tree();
 
-      The methods can be classified in the following way:
+    // Non-copyable: Tree owns raw Branch* and the default copy would
+    // double-free at destruction time.
+    Tree(const Tree&) = delete;
+    Tree& operator=(const Tree&) = delete;
 
-      1) Class constructors
-      2) Tree structural information
-      3) Access branches
-      4) Interact with hierarchical classification
-      5) Interact with family relations between branches
-      6) Interact with the tree structure (add & remove branches)
-      7) Interact with branch properties (add, get & set)
+    // general information
+    int getNumberOfBranches() const;
+    const std::map<int, int>& getStrahlerDistribution() const;
+    const std::map<int, int>& getHortonDistribution() const;
+    std::map<int, double> meanAggregativePropS(const std::string& name) const;
+    std::map<int, double> meanAggregativePropH(const std::string& name) const;
 
-      */
+    // access branches
+    Branch* getTrunk() const;
+    Branch* getSummit() const;
+    Branch* getBranch(int branch_index) const;
+        // throws std::out_of_range if `branch_index` is invalid
+    int getIndex(const Branch* branch) const;
+        // returns -1 if `branch` is not in this tree; O(1)
 
-//////CONSTRUCTORS/////////////////////////////////////////////////////////////
-      Tree();
-        /* Nullary constructor */
-      Tree(map<string, double> trunk_props);
-        /* Non nullary constructor initializes trunk properties. */
+    // hierarchy
+    void setStrahler();
+    int getStrahler(int index) const;
+        // throws std::out_of_range if `index` is invalid
+    void setHorton();
+    int getHorton(int index) const;
+        // throws std::out_of_range if `index` is invalid
 
-//////TREE GENERAL INFORMATION/////////////////////////////////////////////////
-      int getNumberOfBranches();
-        /* Returns the number of branches of the tree. */
-      map<int,int> getStrahlerDistribution();
-        /* Returns the number of branches per strahler order. Two contiguous
-        branches of same order are considered as the same branch. */
-      map<int,int> getHortonDistribution();
-        /* Returns the number of branches per Horton order. Two contiguous
-        branches of same order are considered as the same branch. */
-      map<int,double> meanAggregativePropS(string name);
-        /* Returns the mean of an aggregative property (for example the length)
-        in function of the branch strahler order. */
-      map<int,double> meanAggregativePropH(string name);
-        /* Returns the mean of an aggregative property (for example the length)
-        in function of branch horton order. */
+    // family information
+    int getLastDescendantIndex(int ancestor_index) const;
+        // throws std::out_of_range if `ancestor_index` is invalid
+    int getParentIndex(int child_index) const;
+        // returns -1 if `child_index` is the trunk;
+        // throws std::out_of_range if `child_index` is invalid
+    std::vector<int> getBrothersIndex(int branch_index) const;
+        // throws std::out_of_range if `branch_index` is invalid
+    std::vector<int> getChildrenIndex(int parent_index) const;
+        // throws std::out_of_range if `parent_index` is invalid
+    bool hasParent(int index) const;
+        // throws std::out_of_range if `index` is invalid
+    int getNumberOfChildren(int parent_index) const;
+        // throws std::out_of_range if `parent_index` is invalid
 
-//////ACCESS BRANCHES//////////////////////////////////////////////////////////
-      Branch* getTrunk();
-        /* Returns first branch of "tree_branches" vector. */
-      Branch* getSummit();
-        /* Returns last branch of "tree_branches" vector. */
-      Branch* getBranch(int branch_index);
-        /* Returns the element of "tre_branches" vector at the position
-        "index". */
-      int getIndex(Branch* branch);
-        /* Returns the position of "branch" (its index) in the "tree_branches"
-        vector. */
+    // modify tree
+    void addBranch(int parent_index);
+        // throws std::out_of_range if `parent_index` is invalid
+    void addBranch(int parent_index, const std::unordered_map<std::string, double>& props);
+        // throws std::out_of_range if `parent_index` is invalid
+    void removeBranch(int branch_index);
+        // throws std::out_of_range if `branch_index` is invalid
 
-//////BRANCH HIERARCHY/////////////////////////////////////////////////////////
-      void setStrahler();
-        /* Sets each branch's Strahler order. */
-      int getStrahler(int index);
-        /* Returns Strahler order of the branch at the position "index" of
-        "tree_branches" vector. */
-
-      void setHorton();
-        /* Sets each branch's Horton order. */
-      int getHorton(int index);
-        /* Returns Horton order of the branch at the position "index" of
-        "tree_branches" vector. */
-
-//////BRANCH FAMILY INFORMATION////////////////////////////////////////////////
-      int getLastDescendantIndex(int ancestor_index);
-        /* Returns the index of the last descendant of the branch located at
-        "ancestor_index". */
-      int getParentIndex(int child_index);
-        /* Returns the index of the parent of the branch located at
-        "child_index". */
-      vector<int> getBrothersIndex(int branch_index);
-        /* Returns a vector containing the indexes of the brothers of the branch
-        located at "branch_index". */
-      vector<int> getChildrenIndex(int parent_index);
-        /* Returns a vector containing the indexes of the children of the branch
-        located at "parent_index". */
-      int hasParent(int index);
-        /* Checks if the branch located at "index" has a parent. Returns 1 if it
-         is true, 0 if it is false. */
-      int getNumberOfChildren(int parent_index);
-        /* Returns the number of children of the branch located at
-        "parent_index". */
-
-//////MODIFY TREE_BRANCHES VECTOR//////////////////////////////////////////////
-      void addBranch(int parent_index);
-        /* Adds a branch  at "parent_index+1" without initializing its
-        properties. The new branch is the child of the branch located at
-        "parent_index". */
-      void addBranch(int parent_index,map<string,double> props);
-        /* Adds a branch and initializes its properties as "props" map. */
-      void removeBranch(int branch_index);
-        /* Removes the branch located at "branch_index" and all its descendants.
-         */
-
-//////MODIFY BRANCH PROPERTIES/////////////////////////////////////////////////
-      void addProperty(int index,string name, double value);
-        /* Creates and initializes property for the branch located at "index".
-        The new property's name is "name" and its value is "value". */
-      void setProperty(int index,string name, double value);
-        /* Actualizes the value of the already existing property "name" of
-        the branch located at "index" to the value "value"  */
-      double getProperty(int index,string name);
-        /* Returns the value of the property "name" of the branch located at
-        "index". */
-
+    // branch properties
+    void addProperty(int index, const std::string& name, double value);
+        // throws std::out_of_range if `index` is invalid
+        // throws std::invalid_argument if `name` already exists
+    void setProperty(int index, const std::string& name, double value);
+        // throws std::out_of_range if `index` is invalid or `name` is missing
+    double getProperty(int index, const std::string& name) const;
+        // throws std::out_of_range if `index` is invalid or `name` is missing
 };
 
 #endif
