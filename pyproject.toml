@@ -32,6 +32,11 @@ dev = [
     "ruff>=0.6",
     "pre-commit>=3.7",
 ]
+docs = [
+    "sphinx>=7",
+    "furo>=2024.1",
+    "sphinx-copybutton>=0.5",
+]
 
 [project.urls]
 Homepage = "https://github.com/celoy/MechaTree"
@@ -42,16 +47,10 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 mechatree = ["py.typed"]
+"mechatree._core" = ["*.pxd", "*.pyx", "*.h"]
 
-# Cython/C++ extension modules will be added here once the intern's C++/Cython
-# code (currently in archive/) is ported into src/mechatree/. Example shape:
-#
-# from setuptools import Extension
-# from Cython.Build import cythonize
-# ext_modules = cythonize([
-#     Extension("mechatree._core", ["src/mechatree/_core.pyx", "src/mechatree/branch.cpp", "src/mechatree/tree.cpp"],
-#               language="c++", extra_compile_args=["-std=c++17", "-O3"]),
-# ])
+# Cython/C++ extension modules are declared in setup.py (cythonize requires a
+# real Python entry point, not TOML). See setup.py at the repo root.
 
 [tool.ruff]
 line-length = 100
