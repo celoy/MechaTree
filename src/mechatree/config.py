@@ -89,11 +89,50 @@ class LightConfig:
 
 
 @dataclass(frozen=True)
+class ForestConfig:
+    """Parameters for a forest of trees (Step 12).
+
+    ``n_trees_init`` trees are seeded uniformly across a disk of radius
+    ``size``. The death rule mirrors ``legacy_fortran/Forest.f90:283`` and
+    is configurable so studies of self-thinning can tweak it without
+    forking the orchestrator.
+    """
+
+    size: float = 100.0  # was SizeForest — disk radius
+    n_trees_init: int = 100  # was Ntrees_ini
+    n_trees_max: int = 10000  # was Ntrees_max
+
+    # Death rule (Fortran defaults): tree dies if
+    #   (n_branches < min_branches AND age > min_age_for_undersize) OR age > max_age
+    min_branches: int = 11
+    min_age_for_undersize: int = 5
+    max_age: int = 1000
+
+    def __post_init__(self) -> None:
+        if self.size <= 0.0:
+            raise ValueError("ForestConfig.size must be positive")
+        if self.n_trees_init <= 0:
+            raise ValueError("ForestConfig.n_trees_init must be positive")
+        if self.n_trees_max < self.n_trees_init:
+            raise ValueError(
+                "ForestConfig.n_trees_max must be >= n_trees_init "
+                f"({self.n_trees_max} < {self.n_trees_init})"
+            )
+        if self.min_branches < 1:
+            raise ValueError("ForestConfig.min_branches must be >= 1")
+        if self.min_age_for_undersize < 0:
+            raise ValueError("ForestConfig.min_age_for_undersize must be non-negative")
+        if self.max_age <= 0:
+            raise ValueError("ForestConfig.max_age must be positive")
+
+
+@dataclass(frozen=True)
 class Config:
-    """Top-level config — what ``grow_tree`` consumes."""
+    """Top-level config — what ``grow_tree`` and ``Forest`` consume."""
 
     tree: TreeConfig = field(default_factory=TreeConfig)
     light: LightConfig = field(default_factory=LightConfig)
+    forest: ForestConfig = field(default_factory=ForestConfig)
     n_generations: int = 100  # was Ngeneration / Nsteps
 
     @classmethod
@@ -107,20 +146,25 @@ class Config:
     def from_dict(cls, data: dict[str, Any]) -> Config:
         tree_data = data.get("tree", {}) or {}
         light_data = data.get("light", {}) or {}
+        forest_data = data.get("forest", {}) or {}
         # The ``forest`` block carries n_generations in the Fortran .ini; we
         # also accept a top-level ``n_generations`` for users running only the
         # single-tree simulator without a forest block.
         n_gen = data.get("n_generations")
         if n_gen is None:
-            n_gen = (data.get("forest") or {}).get("n_generations", 100)
+            n_gen = forest_data.get("n_generations", 100)
 
         # Filter to known fields so unknown YAML keys don't crash; this keeps
-        # the schema forward-compatible with the Step-12 forest fields.
+        # the schema forward-compatible with future fields.
         tree_known = {k: v for k, v in tree_data.items() if k in TreeConfig.__dataclass_fields__}
         light_known = {k: v for k, v in light_data.items() if k in LightConfig.__dataclass_fields__}
+        forest_known = {
+            k: v for k, v in forest_data.items() if k in ForestConfig.__dataclass_fields__
+        }
         return cls(
             tree=TreeConfig(**tree_known),
             light=LightConfig(**light_known),
+            forest=ForestConfig(**forest_known),
             n_generations=int(n_gen),
         )
 
@@ -130,4 +174,4 @@ def load_config(path: str | Path) -> Config:
     return Config.from_yaml(path)
 
 
-__all__ = ["Config", "LightConfig", "TreeConfig", "load_config"]
+__all__ = ["Config", "ForestConfig", "LightConfig", "TreeConfig", "load_config"]

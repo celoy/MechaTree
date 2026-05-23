@@ -25,7 +25,16 @@ light:
   n_elevations: 4            # was Nelev
   n_azimuths: 8              # was Nazim
 
-# Forest / evolution blocks from Forest.ini are accepted but ignored in
-# Step 11. ``n_generations`` is read either from a top-level key (below) or
-# from ``forest.n_generations``.
+forest:
+  size: 100.0                # was SizeForest — disk radius
+  n_trees_init: 100          # was Ntrees_ini
+  n_trees_max: 10000         # was Ntrees_max
+  # Death rule (Fortran defaults). A tree dies if
+  #   (n_branches < min_branches AND age > min_age_for_undersize) OR age > max_age
+  min_branches: 11
+  min_age_for_undersize: 5
+  max_age: 1000
+
+# `n_generations` can sit here at top level or under `forest:`; the
+# top-level one wins.
 n_generations: 100
