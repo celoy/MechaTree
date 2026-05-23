@@ -44,3 +44,34 @@ def test_sap_transport_runs(tmp_path):
     # either is a successful run.
     result = _run("sap_transport.py", cwd=tmp_path)
     assert "Tree died" in result.stdout or "Final tree size" in result.stdout
+
+
+# --- Step 13: simulation tutorials ----------------------------------------
+
+
+def test_grow_one_tree_runs(tmp_path):
+    result = _run("grow_one_tree.py", "--no-show", cwd=tmp_path)
+    assert "Final tree:" in result.stdout
+
+
+def test_grow_a_forest_runs(tmp_path):
+    result = _run(
+        "grow_a_forest.py",
+        "--no-show",
+        "--n-trees-init",
+        "5",
+        "--n-trees-max",
+        "30",
+        "--size",
+        "15",
+        cwd=tmp_path,
+    )
+    assert "Final:" in result.stdout
+
+
+def test_custom_simulation_runs(tmp_path):
+    result = _run("custom_simulation.py", "--no-show", cwd=tmp_path)
+    # All three labels should appear in the summary table.
+    assert "default" in result.stdout
+    assert "steady-west" in result.stdout
+    assert "calm-then-storm" in result.stdout
