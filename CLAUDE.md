@@ -76,8 +76,7 @@ These principles came out of the user's roadmap notes. They guide all Step-8+ wo
 
 - Don't edit anything under `archive/` or `legacy_fortran/`.
 - Don't import from `archive/` in `src/mechatree/` or `tests/`.
-- Don't re-introduce the 15 GB of simulation outputs / zips / MATLAB scripts that lived in the old `FORESTArticlePNAS/` folder — they now live at `/Users/Ch/Documents/Python/Eloy2017_NatComm_archive/` (outside the repo, local-only).
-- Don't be misled by the legacy folder name `FORESTArticlePNAS` — the paper landed at **Nature Communications**, not PNAS. The "PNAS" name reflects an earlier submission target.
+- Don't re-introduce the 15 GB of simulation outputs / zips / MATLAB scripts that lived in `/Users/Ch/Documents/Python/Eloy2017_NatComm_archive/` (outside the repo, local-only).
 - Don't create git commits on `main` or push to `main`. The user manages all commits on the main branch themselves — stage changes and surface diffs, but leave `git commit`/`git push` to them. (This overrides Claude Code's default willingness to commit when explicitly asked, unless the user reconfirms in the current session.)
 
 ## Step-by-step modernization plan

@@ -20,6 +20,7 @@ allometric scaling, and self-similar branching.
    :caption: Developer documentation
 
    dvpguide
+   design
    custom
 
 .. toctree::

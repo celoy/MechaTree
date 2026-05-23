@@ -69,3 +69,24 @@ Phase 0 leaked ~241 KB per 1 000-branch tree (perfectly linear growth).
 Phase 4 plateaus at +0.25 MB across 100 iterations — that's allocator
 slack from the warm-up phase, not a leak. Roughly **100× less** total
 memory growth.
+
+## bench_simulation — one generation, per-phase timings (Step 9, PR2)
+
+Balanced binary tree of N branches. Best-of-5 for non-mutating phases
+(stress, requested_growth, secondary_growth); best-of-3 across a pre-built
+batch for mutating phases (prune, primary_growth). Build cost excluded.
+
+| N    | stress (ms) | req_growth (ms) | sec_growth (ms) | prune (ms) | primary (ms) | total (ms) |
+| ---: | ----------: | --------------: | --------------: | ---------: | -----------: | ---------: |
+|  127 |       0.006 |           0.003 |           0.006 |      0.019 |        0.101 |      0.134 |
+|  511 |       0.023 |           0.012 |           0.034 |      0.067 |        1.088 |      1.223 |
+| 2047 |       0.087 |           0.046 |           0.173 |      0.230 |        2.811 |      3.346 |
+| 4095 |       0.156 |           0.089 |           0.372 |      0.501 |        6.035 |      7.152 |
+
+Reading: mechanics + growth are roughly linear in N (good). `primary_growth`
+super-linear because `addBranchWithGeometry` rebuilds `branch_to_index`
+across the tail of the vector per insertion — fine for now, the hot path
+to fix once a Fortran reference is in hand.
+
+A Fortran reference column will be added once `legacy_fortran/tree.f90`
+is set up to dump per-phase wall times on the same machine.

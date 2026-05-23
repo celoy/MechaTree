@@ -3,6 +3,7 @@
  */
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -296,6 +297,38 @@ void Tree::addBranch(int parent_index, const std::unordered_map<std::string, dou
     shift_indices(parent_index + 1, +1);
 }
 
+int Tree::addBranchWithGeometry(
+        int parent_index,
+        double length, double diameter,
+        double unit_t_x, double unit_t_y, double unit_t_z,
+        double unit_b_x, double unit_b_y, double unit_b_z) {
+    const int N = static_cast<int>(tree_branches.size());
+    check_index(parent_index, N, "Tree::addBranchWithGeometry");
+
+    Branch* parent = tree_branches[static_cast<std::size_t>(parent_index)];
+
+    // child.location = parent.location + parent.length * parent.unit_t
+    const auto& p_loc = parent->getLocation();
+    const auto& p_t   = parent->getUnitT();
+    const double p_len = parent->getLength();
+    const double cx = p_loc[0] + p_len * p_t[0];
+    const double cy = p_loc[1] + p_len * p_t[1];
+    const double cz = p_loc[2] + p_len * p_t[2];
+
+    auto* new_branch = new Branch();
+    new_branch->setLength(length);
+    new_branch->setDiameter(diameter);
+    new_branch->setUnitT(unit_t_x, unit_t_y, unit_t_z);
+    new_branch->setUnitB(unit_b_x, unit_b_y, unit_b_z);
+    new_branch->setLocation(cx, cy, cz);
+
+    parent->addChild(new_branch);
+    const int new_index = parent_index + 1;
+    tree_branches.insert(tree_branches.begin() + new_index, new_branch);
+    shift_indices(new_index, +1);
+    return new_index;
+}
+
 void Tree::removeBranch(int branch_index) {
     const int N = static_cast<int>(tree_branches.size());
     check_index(branch_index, N, "Tree::removeBranch");
@@ -326,6 +359,74 @@ void Tree::removeBranch(int branch_index) {
         // Survivors past the removed range now sit at lower indices.
         shift_indices(branch_index, branch_index - last_descendant_index - 1);
     }
+}
+
+void Tree::removeBranches(std::vector<int> branch_indices) {
+    // Sort descending so we erase from the back; an erasure cannot shift the
+    // index of anything we still have to touch. Drop duplicates while we're
+    // at it.
+    std::sort(branch_indices.begin(), branch_indices.end(), std::greater<int>());
+    branch_indices.erase(
+        std::unique(branch_indices.begin(), branch_indices.end()),
+        branch_indices.end());
+
+    // Indices that fall inside another removed subtree become stale during
+    // the loop — `removeBranch` would throw or, worse, free unrelated memory.
+    // Skip any whose Branch pointer is no longer in `branch_to_index`.
+    for (int idx : branch_indices) {
+        if (idx < 0 || idx >= static_cast<int>(tree_branches.size())) {
+            throw std::out_of_range("Tree::removeBranches: index out of range");
+        }
+        Branch* b = tree_branches[static_cast<std::size_t>(idx)];
+        if (branch_to_index.find(b) == branch_to_index.end()) {
+            // already gone — happens when a parent and its descendant
+            // are both in the input list.
+            continue;
+        }
+        removeBranch(idx);
+    }
+}
+
+// ---------- nb_leaves / leaf indices -----------------------------------------
+
+int Tree::reorder() {
+    // Walk from highest depth-first index back to the trunk. Every branch's
+    // descendants sit at higher indices than itself, so by the time we touch
+    // index i all of its children's nb_leaves are already finalised.
+    const int N = static_cast<int>(tree_branches.size());
+    for (int i = N - 1; i >= 0; --i) {
+        Branch* b = tree_branches[static_cast<std::size_t>(i)];
+        const auto& kids = b->getChildren();
+        if (kids.empty()) {
+            b->setNbLeaves(1);
+        } else {
+            int sum = 0;
+            for (const Branch* c : kids) {
+                sum += c->getNbLeaves();
+            }
+            b->setNbLeaves(sum);
+        }
+    }
+    return N == 0 ? 0 : tree_branches.front()->getNbLeaves();
+}
+
+int Tree::getNbLeaves() const {
+    if (tree_branches.empty()) {
+        return 0;
+    }
+    return tree_branches.front()->getNbLeaves();
+}
+
+std::vector<int> Tree::leafIndices() const {
+    std::vector<int> out;
+    const int N = static_cast<int>(tree_branches.size());
+    out.reserve(static_cast<std::size_t>(N));
+    for (int i = 0; i < N; ++i) {
+        if (!tree_branches[static_cast<std::size_t>(i)]->hasChildren()) {
+            out.push_back(i);
+        }
+    }
+    return out;
 }
 
 // ---------- branch properties ------------------------------------------------

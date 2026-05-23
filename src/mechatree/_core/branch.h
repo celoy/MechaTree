@@ -9,6 +9,8 @@
 #ifndef BRANCH_H_
 #define BRANCH_H_
 
+#include <array>
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -27,6 +29,23 @@ private:
     std::vector<Branch*> children;
     int strahler = 0;
     int horton = 0;
+
+    // typed mechanics fields (Step 9). Default-initialised so existing
+    // dict-built branches keep working without explicit construction.
+    double length_ = 0.0;
+    double diameter_ = 0.0;
+    double light_ = 0.0;
+    double stress_ = 0.0;
+    double max_stress_ = 0.0;
+    double vol_growth_ = 0.0;
+    double vol_summed_ = 0.0;
+    double maintenance_vol_ = 0.0;
+    int    nb_leaves_ = 0;
+    std::array<double, 3> location_{{0.0, 0.0, 0.0}};
+    std::array<double, 3> unit_t_{{0.0, 0.0, 1.0}};
+    std::array<double, 3> unit_b_{{1.0, 0.0, 0.0}};
+    std::array<double, 3> force_{{0.0, 0.0, 0.0}};
+    std::array<double, 3> moment_{{0.0, 0.0, 0.0}};
 
 public:
     Branch();
@@ -69,6 +88,60 @@ public:
     int getStrahler() const;
     void setHorton(int horton_index);
     int getHorton() const;
+
+    // typed mechanics fields (Step 9)
+    //
+    // The property map above is the user-extension bag; these typed fields
+    // are the hot path read/written by mechanics, growth and pruning. The
+    // two storages are independent: a branch built with a `{"length": 1.0}`
+    // dict has `getProperty("length") == 1.0` and `getLength() == 0.0`.
+
+    double getLength() const { return length_; }
+    void   setLength(double v) { length_ = v; }
+    double getDiameter() const { return diameter_; }
+    void   setDiameter(double v) { diameter_ = v; }
+    double getLight() const { return light_; }
+    void   setLight(double v) { light_ = v; }
+    double getStress() const { return stress_; }
+    void   setStress(double v) { stress_ = v; }
+    double getMaxStress() const { return max_stress_; }
+    void   setMaxStress(double v) { max_stress_ = v; }
+    double getVolGrowth() const { return vol_growth_; }
+    void   setVolGrowth(double v) { vol_growth_ = v; }
+    double getVolSummed() const { return vol_summed_; }
+    void   setVolSummed(double v) { vol_summed_ = v; }
+    double getMaintenanceVol() const { return maintenance_vol_; }
+    void   setMaintenanceVol(double v) { maintenance_vol_ = v; }
+    int    getNbLeaves() const { return nb_leaves_; }
+    void   setNbLeaves(int v) { nb_leaves_ = v; }
+
+    // 3D-vector accessors.
+    //
+    // - `getLocation()` returns a const reference for C++ callers (the
+    //   mechanics walks in PR2 read locations thousands of times per
+    //   generation).
+    // - `locationAt(i)` reads a single component — used by the Cython
+    //   wrapper to avoid binding std::array.
+    // - `setLocation(x, y, z)` writes three doubles atomically.
+    const std::array<double, 3>& getLocation() const { return location_; }
+    double locationAt(std::size_t i) const { return location_[i]; }
+    void   setLocation(double x, double y, double z) { location_ = {{x, y, z}}; }
+
+    const std::array<double, 3>& getUnitT() const { return unit_t_; }
+    double unitTAt(std::size_t i) const { return unit_t_[i]; }
+    void   setUnitT(double x, double y, double z) { unit_t_ = {{x, y, z}}; }
+
+    const std::array<double, 3>& getUnitB() const { return unit_b_; }
+    double unitBAt(std::size_t i) const { return unit_b_[i]; }
+    void   setUnitB(double x, double y, double z) { unit_b_ = {{x, y, z}}; }
+
+    const std::array<double, 3>& getForce() const { return force_; }
+    double forceAt(std::size_t i) const { return force_[i]; }
+    void   setForce(double x, double y, double z) { force_ = {{x, y, z}}; }
+
+    const std::array<double, 3>& getMoment() const { return moment_; }
+    double momentAt(std::size_t i) const { return moment_[i]; }
+    void   setMoment(double x, double y, double z) { moment_ = {{x, y, z}}; }
 };
 
 #endif
