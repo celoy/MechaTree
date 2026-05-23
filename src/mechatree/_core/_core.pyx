@@ -446,6 +446,13 @@ cdef class PySafetyModel:
             del self._model
             self._model = NULL
 
+    def compute(self, int nb_leaves, double max_stress) -> float:
+        """Evaluate the safety factor for a single branch. Dispatches through
+        the C++ vtable to the concrete subclass."""
+        if self._model is NULL:
+            raise ValueError("PySafetyModel is not initialised; use a subclass")
+        return self._model.compute(nb_leaves, max_stress)
+
 
 cdef class PyConstantSafety(PySafetyModel):
     """Returns a constant safety factor regardless of inputs.
@@ -479,6 +486,20 @@ cdef class PyAllocationModel:
         if self._model is not NULL:
             del self._model
             self._model = NULL
+
+    def compute(self, int nb_leaves, double vol_relative):
+        """Evaluate the allocation model for a tree.
+
+        Returns ``(p_seeds, p_leaves, phototropism)``. Dispatches through the
+        C++ vtable to the concrete subclass.
+        """
+        cdef double p_seeds = 0.0
+        cdef double p_leaves = 0.0
+        cdef double phototropism = 0.0
+        if self._model is NULL:
+            raise ValueError("PyAllocationModel is not initialised; use a subclass")
+        self._model.compute(nb_leaves, vol_relative, p_seeds, p_leaves, phototropism)
+        return (p_seeds, p_leaves, phototropism)
 
 
 cdef class PyConstantAllocation(PyAllocationModel):

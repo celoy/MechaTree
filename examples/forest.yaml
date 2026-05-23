@@ -1,0 +1,31 @@
+# Example configuration for mechatree.simulate.grow_tree.
+#
+# All sections are optional — omitted fields fall back to the defaults in
+# mechatree.config. The Fortran .ini names appear in the comments so
+# cross-referencing the paper and legacy code stays mechanical.
+
+tree:
+  twig_length: 1.0           # was TwigLength
+  twig_diameter: 0.1         # was TwigDiameter
+  leaf_surface: 0.25         # was LeafSurface (S0)
+  cauchy: 2.0e-5             # was Cauchy (material stiffness Cy) — Forest.ini runtime value
+  volume_ratio_leaf: 8.0     # was VolumeRatioLeaf
+  maintenance_h: 0.02        # was MaintenanceH
+  max_branches: 10000        # was Nmax
+
+  # Branching geometry. The Fortran derives these from genes 1..3; we expose
+  # them directly so users without a genome can still grow a plausible tree.
+  theta1: 0.7853981633974483   #  pi / 4 — left daughter
+  theta2: -0.7853981633974483  # -pi / 4 — right daughter
+  gamma1: 0.0
+  gamma2: 3.141592653589793    #  pi
+
+light:
+  size_leaf: 1.0             # was SizeLeaf — 2D shadow-grid cell size
+  n_elevations: 4            # was Nelev
+  n_azimuths: 8              # was Nazim
+
+# Forest / evolution blocks from Forest.ini are accepted but ignored in
+# Step 11. ``n_generations`` is read either from a top-level key (below) or
+# from ``forest.n_generations``.
+n_generations: 100

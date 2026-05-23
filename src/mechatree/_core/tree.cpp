@@ -335,12 +335,19 @@ void Tree::removeBranch(int branch_index) {
 
     Branch* branch2remove = tree_branches[static_cast<std::size_t>(branch_index)];
 
-    // Unlink from parent's children list while the parent pointer is valid.
+    // CRITICAL: compute the deletion range BEFORE unlinking from the parent.
+    // getLastDescendantIndex walks the parent's children to find the next
+    // sibling that ends `branch_index`'s subtree. Calling parent.removeChild
+    // first can leave the parent with zero children, at which point the
+    // recursion in getLastDescendantIndex collapses to the parent's own
+    // index (smaller than branch_index) and the deletion loop becomes a
+    // no-op — leaving the subtree stranded in tree_branches with a
+    // dangling parent pointer.
+    const int last_descendant_index = getLastDescendantIndex(branch_index);
+
     if (branch_index != 0) {
         branch2remove->getParent()->removeChild(branch2remove);
     }
-
-    const int last_descendant_index = getLastDescendantIndex(branch_index);
 
     // Tree owns the Branch* lifetimes — free the subtree (and drop the index
     // map entries) before erasing from the vector.
@@ -362,28 +369,33 @@ void Tree::removeBranch(int branch_index) {
 }
 
 void Tree::removeBranches(std::vector<int> branch_indices) {
-    // Sort descending so we erase from the back; an erasure cannot shift the
-    // index of anything we still have to touch. Drop duplicates while we're
-    // at it.
     std::sort(branch_indices.begin(), branch_indices.end(), std::greater<int>());
     branch_indices.erase(
         std::unique(branch_indices.begin(), branch_indices.end()),
         branch_indices.end());
 
-    // Indices that fall inside another removed subtree become stale during
-    // the loop — `removeBranch` would throw or, worse, free unrelated memory.
-    // Skip any whose Branch pointer is no longer in `branch_to_index`.
+    // Snapshot the Branch* per requested index BEFORE any removal. Iterating
+    // tree_branches[idx] inside the loop is wrong: a previous removeBranch
+    // can shrink the vector enough that the SAME idx now points to a
+    // different branch. By capturing pointers up front and dispatching on
+    // pointer presence in branch_to_index, we tolerate cascading subtree
+    // removals (a parent and a descendant both in the input list).
+    std::vector<Branch*> targets;
+    targets.reserve(branch_indices.size());
     for (int idx : branch_indices) {
         if (idx < 0 || idx >= static_cast<int>(tree_branches.size())) {
             throw std::out_of_range("Tree::removeBranches: index out of range");
         }
-        Branch* b = tree_branches[static_cast<std::size_t>(idx)];
-        if (branch_to_index.find(b) == branch_to_index.end()) {
-            // already gone — happens when a parent and its descendant
-            // are both in the input list.
+        targets.push_back(tree_branches[static_cast<std::size_t>(idx)]);
+    }
+
+    for (Branch* b : targets) {
+        auto it = branch_to_index.find(b);
+        if (it == branch_to_index.end()) {
+            // Already cascade-deleted as part of an ancestor's subtree.
             continue;
         }
-        removeBranch(idx);
+        removeBranch(it->second);
     }
 }
 

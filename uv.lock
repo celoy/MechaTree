@@ -815,6 +815,9 @@ version = "0.0.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "matplotlib" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -835,8 +838,10 @@ docs = [
 requires-dist = [
     { name = "furo", marker = "extra == 'docs'", specifier = ">=2024.1" },
     { name = "matplotlib", specifier = ">=3.7" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=7" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5" },
