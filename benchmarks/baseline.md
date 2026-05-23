@@ -90,3 +90,29 @@ to fix once a Fortran reference is in hand.
 
 A Fortran reference column will be added once `legacy_fortran/tree.f90`
 is set up to dump per-phase wall times on the same machine.
+
+## bench_light — light interception over N leaves (Step 10)
+
+Random leaf cloud in a `[-15, 15]^2 x [0, 20]` box under the default
+`Sun()` (4 elevations × 8 azimuths = 32 directions). Best of 3 after a
+warmup call.
+
+| N      | best (ms) | ms/direction | µs/leaf |
+| -----: | --------: | -----------: | ------: |
+|    100 |      0.51 |        0.016 |    5.08 |
+|    500 |      1.31 |        0.041 |    2.61 |
+|   1000 |      2.52 |        0.079 |    2.52 |
+|   2500 |      6.87 |        0.215 |    2.75 |
+|   5000 |     14.54 |        0.454 |    2.91 |
+|  10000 |     30.91 |        0.966 |    3.09 |
+
+Linear in N (~3 µs/leaf at scale), per the `lexsort + np.unique` design.
+
+This is the vectorised implementation; the original Python `for j in
+order:` loop was ~5× slower (e.g. 80 ms at N=5000). The vectorised path
+keeps light competitive with the Step-9 mechanics phases: at N=5000
+across 3000 generations the light cost is roughly **45 s**, vs. the
+total Step-9 mechanics+growth+pruning at the same scale (~25 s including
+the still-superlinear `primary_growth`). Light is no longer the
+dominant cost; a Cython port would buy maybe another 2–3× but is not
+needed at current scales.
