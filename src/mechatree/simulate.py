@@ -128,8 +128,12 @@ def grow_tree(
         primary_growth and prune) and the Python ``numpy.random.Generator``
         (used by ``wind_fn``). Reproducible end-to-end.
     safety, allocation:
-        Genome models (mechatree.genome). Default = ConstantSafety(1.0) and
-        ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5).
+        Genome models (mechatree.genome). When ``None``, defaults are built
+        from ``config.genome`` (a ``GenomeConfig``) — i.e. ``ConstantSafety``
+        and ``ConstantAllocation`` populated from YAML. If ``config`` is a
+        bare ``TreeConfig`` (no genome block), built-in defaults are used:
+        ``ConstantSafety(3.0)`` and
+        ``ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5)``.
     wind_fn:
         Optional ``(generation, rng) -> (x, y, z)``. Default = ``default_wind_fn``
         (Fortran-faithful rotating wind with long-tailed amplitude).
@@ -140,8 +144,10 @@ def grow_tree(
         for plotting, snapshotting, or aggregating statistics. ``None`` (default)
         skips all callback overhead.
     """
+    genome_cfg = None
     if isinstance(config, Config):
         tree_cfg = config.tree
+        genome_cfg = config.genome
         if n_generations is None:
             n_generations = config.n_generations
         if sun is None:
@@ -159,9 +165,16 @@ def grow_tree(
     if sun is None:
         sun = Sun()
     if safety is None:
-        safety = ConstantSafety(1.0)
+        safety = ConstantSafety(genome_cfg.safety if genome_cfg is not None else 3.0)
     if allocation is None:
-        allocation = ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5)
+        if genome_cfg is not None:
+            allocation = ConstantAllocation(
+                p_seeds=genome_cfg.p_seeds,
+                p_leaves=genome_cfg.p_leaves,
+                phototropism=genome_cfg.phototropism,
+            )
+        else:
+            allocation = ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5)
     if wind_fn is None:
         wind_fn = default_wind_fn
 

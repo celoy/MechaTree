@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mechatree.config import Config, LightConfig, TreeConfig, load_config
+from mechatree.config import Config, GenomeConfig, LightConfig, TreeConfig, load_config
 
 
 def test_treeconfig_defaults():
@@ -99,3 +99,43 @@ def test_config_empty_yaml_uses_all_defaults():
     cfg = Config.from_dict({})
     assert cfg.tree == TreeConfig()
     assert cfg.light == LightConfig()
+    assert cfg.genome == GenomeConfig()
+
+
+def test_genomeconfig_defaults():
+    gc = GenomeConfig()
+    assert gc.safety == 3.0
+    assert gc.p_seeds == 0.1
+    assert gc.p_leaves == 0.5
+    assert gc.phototropism == 0.5
+
+
+def test_genomeconfig_validation():
+    with pytest.raises(ValueError):
+        GenomeConfig(safety=0.0)
+    with pytest.raises(ValueError):
+        GenomeConfig(p_seeds=-0.01)
+    with pytest.raises(ValueError):
+        GenomeConfig(p_leaves=-0.01)
+    with pytest.raises(ValueError):
+        GenomeConfig(p_seeds=0.6, p_leaves=0.6)
+    with pytest.raises(ValueError):
+        GenomeConfig(phototropism=1.5)
+
+
+def test_config_from_dict_reads_genome_block():
+    data = {"genome": {"safety": 4.2, "p_seeds": 0.2, "phototropism": 0.0}}
+    cfg = Config.from_dict(data)
+    assert cfg.genome.safety == pytest.approx(4.2)
+    assert cfg.genome.p_seeds == pytest.approx(0.2)
+    # Unset fields fall back to defaults.
+    assert cfg.genome.p_leaves == pytest.approx(0.5)
+    assert cfg.genome.phototropism == pytest.approx(0.0)
+
+
+def test_config_yaml_example_carries_genome_block():
+    cfg = load_config(Path(__file__).parent.parent / "examples" / "forest.yaml")
+    assert cfg.genome.safety == pytest.approx(3.0)
+    assert cfg.genome.p_seeds == pytest.approx(0.1)
+    assert cfg.genome.p_leaves == pytest.approx(0.5)
+    assert cfg.genome.phototropism == pytest.approx(0.5)

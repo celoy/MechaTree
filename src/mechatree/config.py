@@ -89,6 +89,40 @@ class LightConfig:
 
 
 @dataclass(frozen=True)
+class GenomeConfig:
+    """Constant scalars consumed by ConstantSafety / ConstantAllocation.
+
+    Reproduce the values the Fortran ``neural_branch`` / ``neural_reserve``
+    networks evolved to in Eloy et al. (Nat Commun 2017). ``safety`` is the
+    multiplier of the branch volume that would just barely survive nominal
+    wind — ``safety = 3`` puts branches at ~(1/3)^(3/2) ≈ 0.19 of breaking
+    stress, the value the evolved network settled on.
+    """
+
+    safety: float = 3.0  # was neural_branch output (Safety)
+    p_seeds: float = 0.1  # was neural_reserve output [0]
+    p_leaves: float = 0.5  # was neural_reserve output [1]
+    phototropism: float = 0.5  # was neural_reserve output [2]
+
+    def __post_init__(self) -> None:
+        if self.safety <= 0.0:
+            raise ValueError(f"GenomeConfig.safety must be positive, got {self.safety}")
+        if self.p_seeds < 0.0:
+            raise ValueError(f"GenomeConfig.p_seeds must be non-negative, got {self.p_seeds}")
+        if self.p_leaves < 0.0:
+            raise ValueError(f"GenomeConfig.p_leaves must be non-negative, got {self.p_leaves}")
+        if self.p_seeds + self.p_leaves > 1.0:
+            raise ValueError(
+                "GenomeConfig.p_seeds + p_leaves must be <= 1, "
+                f"got {self.p_seeds} + {self.p_leaves}"
+            )
+        if not 0.0 <= self.phototropism <= 1.0:
+            raise ValueError(
+                f"GenomeConfig.phototropism must be in [0, 1], got {self.phototropism}"
+            )
+
+
+@dataclass(frozen=True)
 class ForestConfig:
     """Parameters for a forest of trees (Step 12).
 
@@ -133,6 +167,7 @@ class Config:
     tree: TreeConfig = field(default_factory=TreeConfig)
     light: LightConfig = field(default_factory=LightConfig)
     forest: ForestConfig = field(default_factory=ForestConfig)
+    genome: GenomeConfig = field(default_factory=GenomeConfig)
     n_generations: int = 100  # was Ngeneration / Nsteps
 
     @classmethod
@@ -147,6 +182,7 @@ class Config:
         tree_data = data.get("tree", {}) or {}
         light_data = data.get("light", {}) or {}
         forest_data = data.get("forest", {}) or {}
+        genome_data = data.get("genome", {}) or {}
         # The ``forest`` block carries n_generations in the Fortran .ini; we
         # also accept a top-level ``n_generations`` for users running only the
         # single-tree simulator without a forest block.
@@ -161,10 +197,14 @@ class Config:
         forest_known = {
             k: v for k, v in forest_data.items() if k in ForestConfig.__dataclass_fields__
         }
+        genome_known = {
+            k: v for k, v in genome_data.items() if k in GenomeConfig.__dataclass_fields__
+        }
         return cls(
             tree=TreeConfig(**tree_known),
             light=LightConfig(**light_known),
             forest=ForestConfig(**forest_known),
+            genome=GenomeConfig(**genome_known),
             n_generations=int(n_gen),
         )
 
@@ -174,4 +214,11 @@ def load_config(path: str | Path) -> Config:
     return Config.from_yaml(path)
 
 
-__all__ = ["Config", "ForestConfig", "LightConfig", "TreeConfig", "load_config"]
+__all__ = [
+    "Config",
+    "ForestConfig",
+    "GenomeConfig",
+    "LightConfig",
+    "TreeConfig",
+    "load_config",
+]

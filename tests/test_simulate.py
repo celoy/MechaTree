@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from mechatree.config import Config, TreeConfig
+from mechatree.config import Config, GenomeConfig, TreeConfig
 from mechatree.genome import ConstantAllocation, ConstantSafety
 from mechatree.light import Sun
 from mechatree.simulate import default_wind_fn, grow_tree, make_seed_tree
@@ -124,6 +124,17 @@ def test_grow_tree_custom_genome_models():
         allocation=ConstantAllocation(p_seeds=0.0, p_leaves=0.0, phototropism=0.0),
     )
     assert tree_growing.get_number_of_branches() > tree_idle.get_number_of_branches()
+
+
+def test_grow_tree_uses_genome_config_when_safety_is_default():
+    """When ``safety`` is left None, grow_tree should read it from
+    ``config.genome.safety``. A higher safety => more thickening => trees
+    sustain more branches than the low-safety counterpart."""
+    cfg_low = Config(genome=GenomeConfig(safety=0.5))
+    cfg_high = Config(genome=GenomeConfig(safety=3.0))
+    t_low = grow_tree(cfg_low, n_generations=20, seed=42)
+    t_high = grow_tree(cfg_high, n_generations=20, seed=42)
+    assert t_high.get_number_of_branches() > t_low.get_number_of_branches()
 
 
 def test_grow_tree_custom_sun_is_used():

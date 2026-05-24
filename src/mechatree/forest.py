@@ -90,10 +90,15 @@ class Forest:
 
     def __post_init__(self) -> None:
         self.rng = np.random.default_rng(self.seed)
+        gc = self.config.genome
         if self.safety is None:
-            self.safety = ConstantSafety(1.0)
+            self.safety = ConstantSafety(gc.safety)
         if self.allocation is None:
-            self.allocation = ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5)
+            self.allocation = ConstantAllocation(
+                p_seeds=gc.p_seeds,
+                p_leaves=gc.p_leaves,
+                phototropism=gc.phototropism,
+            )
         if self.wind_fn is None:
             self.wind_fn = default_wind_fn
         if self.sun is None:

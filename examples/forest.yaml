@@ -35,6 +35,16 @@ forest:
   min_age_for_undersize: 5
   max_age: 1000
 
+# Genome constants — drop-in values from the Fortran neural_branch /
+# neural_reserve networks (Eloy et al., Nat Commun 2017). `safety` is the
+# multiplier of the just-breaks-under-nominal-wind volume that each branch
+# targets: safety=3 keeps branches at ~(1/3)^(3/2) ≈ 0.19 of breaking stress.
+genome:
+  safety: 3.0                # was Safety (neural_branch output)
+  p_seeds: 0.1               # was p_seeds (neural_reserve output [0])
+  p_leaves: 0.5              # was p_leaves (neural_reserve output [1])
+  phototropism: 0.5          # was phototropism (neural_reserve output [2])
+
 # `n_generations` can sit here at top level or under `forest:`; the
 # top-level one wins.
 n_generations: 100
