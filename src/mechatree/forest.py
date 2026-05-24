@@ -172,6 +172,19 @@ class Forest:
         for tree in self.trees:
             prune(tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy)
             tree.reorder()
+            # Optional: fuse single-child parent->child chains left by pruning
+            # into one straight segment (bottom/top + total volume kept).
+            # ``collapse_chains_after_prune`` only walks the chains seeded by
+            # this generation's cuts (recorded by ``prune`` itself), so the
+            # cost is proportional to the number of cuts rather than to the
+            # tree's size. Worth trying on long forest runs to keep per-step
+            # cost down.
+            #
+            #   n_pruned = prune(...)
+            #   tree.reorder()
+            #   if n_pruned > 0:
+            #       tree.collapse_chains_after_prune()  # length_max=10.0 by default
+            #       tree.reorder()
 
         # 4. Age + death.
         n_died = 0

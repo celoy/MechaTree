@@ -32,7 +32,7 @@ private:
 
     // typed mechanics fields (Step 9). Default-initialised so existing
     // dict-built branches keep working without explicit construction.
-    double length_ = 0.0;
+    double length_ = 1.0;
     double diameter_ = 0.0;
     double light_ = 0.0;
     double stress_ = 0.0;

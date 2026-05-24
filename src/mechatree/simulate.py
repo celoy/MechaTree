@@ -204,6 +204,19 @@ def grow_tree(
             tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy
         )
         tree.reorder()
+        # Optional: fuse single-child parent->child chains produced by pruning
+        # into one straight segment (bottom/top points + total volume kept;
+        # the merged diameter is back-solved from the new length). Pruning is
+        # the only event that creates such chains, so guard on n_pruned > 0
+        # to skip the no-op pass. The "after_prune" variant only walks the
+        # handful of chains seeded by this generation's cuts — much cheaper
+        # than the whole-tree ``collapse_single_child_chains``. Useful for
+        # long forest simulations where leftover chains accumulate; perturbs
+        # the mechanics slightly because merged segments have larger moment
+        # arms than the bends they replace.
+        # if n_pruned > 0:
+        #     tree.collapse_chains_after_prune()  # length_max=10.0 by default
+        #     tree.reorder()
 
         # 5. Primary growth (new twig pairs). Snapshot reserve BEFORE the call
         # so the seed-cost mirrors the Fortran's pre-call R0.

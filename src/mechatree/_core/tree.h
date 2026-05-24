@@ -43,6 +43,18 @@ private:
     // `delta` (positive when a branch was inserted; negative when erased).
     void shift_indices(int from, int delta);
 
+    // Collapse the single-child chain that starts at b0 (b0 must have
+    // exactly one child) into one straight segment. Returns the number of
+    // branches absorbed (0 if b0 has !=1 children or if the chain is too
+    // short / too long to merge under `length_max`).
+    int collapseChainFrom(Branch* b0, double length_max);
+
+    // Populated by ``prune`` (pruning.cpp) via setLastPruneParents — see
+    // collapseChainsAfterPrune for the consumer. Pointer-based so that
+    // intervening structural changes (primary_growth adding twigs, etc.)
+    // do not invalidate the entries before the consumer reads them.
+    std::vector<Branch*> last_prune_parents_;
+
 public:
     Tree();
     explicit Tree(const std::unordered_map<std::string, double>& trunk_props);
@@ -117,6 +129,52 @@ public:
         // branches are cut in one pruning pass. Duplicates and indices of
         // branches that fall inside another removed subtree are tolerated.
         // throws std::out_of_range on any invalid index.
+
+    int collapseSingleChildChains(double length_max = 10.0);
+        // Fuse every maximal run of single-child parents into one straight
+        // segment from chain-bottom to chain-top. The first branch of each
+        // chain keeps its index, parent and property bag; its length,
+        // diameter, unit_t and (if the chain dead-ends) children are
+        // overwritten. The interior branches are removed via removeBranches.
+        // Volume (sum of pi/4 * d^2 * L over the merged branches) is
+        // preserved; the new diameter is back-solved from the new length.
+        //
+        // ``length_max`` caps the resulting merged segment's Euclidean
+        // length: a chain is only extended while the prospective merged
+        // length stays at or below ``length_max``. Beyond that point the
+        // chain is truncated and the next-down branch becomes the merged
+        // segment's child. Default 10.0.
+        //
+        // Returns the number of branches absorbed (0 if there are no
+        // single-child chains worth merging). Does NOT call reorder().
+        //
+        // O(N) — walks every branch. Use ``collapseChainsAfterPrune`` for
+        // the steady-state case where only a handful of chains are new.
+
+    int collapseChainsAfterPrune(double length_max = 10.0);
+        // Targeted collapse: walks only the chains seeded by the parents
+        // of branches removed by the last ``prune`` call. O(P + total chain
+        // length) where P is the parent set's size — typically a handful
+        // of nodes per generation, vs the whole tree for
+        // ``collapseSingleChildChains``. Behaves identically to that method
+        // otherwise (same length_max semantics, same volume / endpoint
+        // preservation).
+
+    // Side channel populated by ``prune`` (pruning.cpp) and consumed by
+    // ``collapseChainsAfterPrune``. Pointers stay valid across non-removal
+    // mutations (e.g. primary_growth), unlike indices which shift on every
+    // insertion or removal.
+    void setLastPruneParents(std::vector<Branch*> parents) {
+        last_prune_parents_ = std::move(parents);
+    }
+    const std::vector<Branch*>& getLastPruneParents() const {
+        return last_prune_parents_;
+    }
+    // Live snapshot of the parent indices (for Python introspection /
+    // benchmarking). Walks branch_to_index so it reflects the current
+    // depth-first order even if branches have been inserted since the
+    // prune.
+    std::vector<int> getLastPruneParentIndices() const;
 
     // primary-growth reserve pool (per-tree).
     double getReserve() const { return reserve_; }

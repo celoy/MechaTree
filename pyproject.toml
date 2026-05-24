@@ -45,6 +45,11 @@ docs = [
     "furo>=2024.1",
     "sphinx-copybutton>=0.5",
 ]
+notebooks = [
+    "jupyter>=1.0",
+    "ipykernel>=6.29",
+    "nbstripout>=0.7",
+]
 
 [project.urls]
 Homepage = "https://github.com/celoy/MechaTree"

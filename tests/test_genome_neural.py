@@ -84,9 +84,9 @@ def test_neural_safety_matches_python_reference(champions, reference, species_id
             reference.neural_branch(np.asarray(float(nb_leaves)), np.asarray(max_stress), weights)
         )
         got = cpp.compute(nb_leaves, max_stress)
-        assert got == pytest.approx(
-            ref, abs=1e-12
-        ), f"species {species_id} at ({nb_leaves}, {max_stress}): C++ {got} != Python {ref}"
+        assert got == pytest.approx(ref, abs=1e-12), (
+            f"species {species_id} at ({nb_leaves}, {max_stress}): C++ {got} != Python {ref}"
+        )
 
 
 @pytest.mark.parametrize("species_id", [0, 1])

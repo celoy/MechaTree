@@ -3,11 +3,14 @@
  */
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <functional>
 #include <map>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "tree.h"
@@ -406,6 +409,181 @@ void Tree::removeBranches(std::vector<int> branch_indices) {
         }
         removeBranch(it->second);
     }
+}
+
+int Tree::collapseChainFrom(Branch* b0, double length_max) {
+    // Collapse the single-child chain rooted at b0. Returns the number of
+    // branches absorbed (0 if there is nothing to merge). See header for the
+    // case analysis (chain ends at leaf / fork / length cap).
+
+    if (b0->getChildren().size() != 1) {
+        return 0;
+    }
+
+    const double pi_over_4 = std::acos(-1.0) / 4.0;
+    const auto& base = b0->getLocation();
+
+    auto dist_from_base = [&base](double x, double y, double z) {
+        const double dx = x - base[0];
+        const double dy = y - base[1];
+        const double dz = z - base[2];
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+
+    // Walk the chain through single-child descendants, stopping early if
+    // absorbing cur would push the merged length over the cap.
+    // Predicted tip if cur is absorbed = cur.location + cur.length * cur.unit_t.
+    std::vector<Branch*> chain = {b0};
+    Branch* cur = b0->getChildren().front();
+    bool truncated_by_length = false;
+    while (cur->getChildren().size() == 1) {
+        const auto& loc = cur->getLocation();
+        const auto& t   = cur->getUnitT();
+        const double L  = cur->getLength();
+        const double tip_x = loc[0] + L * t[0];
+        const double tip_y = loc[1] + L * t[1];
+        const double tip_z = loc[2] + L * t[2];
+        if (dist_from_base(tip_x, tip_y, tip_z) > length_max) {
+            truncated_by_length = true;
+            break;
+        }
+        chain.push_back(cur);
+        cur = cur->getChildren().front();
+    }
+    // `cur` now has 0 children (leaf), >=2 children (fork), or 1 child but
+    // we stopped because of length_max.
+    const bool cur_is_leaf = (!truncated_by_length) && cur->getChildren().empty();
+    if (cur_is_leaf) {
+        // Tentatively include the leaf — but only if doing so keeps the
+        // merged length within the cap.
+        const auto& loc = cur->getLocation();
+        const auto& t   = cur->getUnitT();
+        const double L  = cur->getLength();
+        const double tip_x = loc[0] + L * t[0];
+        const double tip_y = loc[1] + L * t[1];
+        const double tip_z = loc[2] + L * t[2];
+        if (dist_from_base(tip_x, tip_y, tip_z) <= length_max) {
+            chain.push_back(cur);
+            cur = nullptr;  // no fork to rewire
+        }
+        // else: leaf stays as merged segment's child (handled as case 2).
+    }
+    if (chain.size() < 2) {
+        return 0;
+    }
+
+    // Compute the merged geometry.
+    std::array<double, 3> tip;
+    if (cur == nullptr) {
+        Branch* last = chain.back();
+        const auto& loc = last->getLocation();
+        const auto& t   = last->getUnitT();
+        const double L  = last->getLength();
+        tip = {{loc[0] + L * t[0], loc[1] + L * t[1], loc[2] + L * t[2]}};
+    } else {
+        tip = cur->getLocation();
+    }
+    const double dx = tip[0] - base[0];
+    const double dy = tip[1] - base[1];
+    const double dz = tip[2] - base[2];
+    const double new_L = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (new_L <= 0.0) {
+        return 0;  // degenerate (zero-extent chain)
+    }
+
+    double V = 0.0;
+    for (Branch* bi : chain) {
+        const double d = bi->getDiameter();
+        const double l = bi->getLength();
+        V += pi_over_4 * d * d * l;
+    }
+    const double new_D = std::sqrt(V / (pi_over_4 * new_L));
+
+    b0->setLength(new_L);
+    b0->setDiameter(new_D);
+    b0->setUnitT(dx / new_L, dy / new_L, dz / new_L);
+
+    // Case 2: cur survives below the merged segment. Rewire as b0's child
+    // (a sibling of chain[1]) so the subsequent removeBranch ranges over
+    // chain[1..end] without touching cur.
+    if (cur != nullptr) {
+        Branch* last_interior = chain.back();
+        last_interior->removeChild(cur);
+        cur->removeParent();
+        b0->addChild(cur);
+    }
+
+    const int idx_chain1 = getIndex(chain[1]);
+    removeBranch(idx_chain1);
+
+    return static_cast<int>(chain.size()) - 1;
+}
+
+int Tree::collapseSingleChildChains(double length_max) {
+    // Snapshot pointers in their current depth-first order. Iteration
+    // dereferences each pointer only after a presence check (via
+    // branch_to_index), so dangling entries (chain bodies erased by an
+    // earlier removeBranch) are safe to skip.
+    std::vector<Branch*> snapshot(tree_branches.begin(), tree_branches.end());
+
+    int total_absorbed = 0;
+    for (Branch* b0 : snapshot) {
+        // Skip pointers whose branch was already absorbed by an earlier chain.
+        if (branch_to_index.find(b0) == branch_to_index.end()) {
+            continue;
+        }
+        total_absorbed += collapseChainFrom(b0, length_max);
+    }
+    return total_absorbed;
+}
+
+int Tree::collapseChainsAfterPrune(double length_max) {
+    // Walk up from each just-pruned-parent (as a Branch* — robust to index
+    // shifts since the prune call) to its chain start, dedup, and run the
+    // chain-walk-and-collapse helper on each.
+    std::unordered_set<Branch*> chain_starts;
+    for (Branch* p : last_prune_parents_) {
+        if (p == nullptr) continue;
+        if (branch_to_index.find(p) == branch_to_index.end()) {
+            // Defensive: the parent is no longer in the tree (shouldn't
+            // happen unless someone removed it manually between the prune
+            // and this call).
+            continue;
+        }
+        Branch* s = p;
+        // Walk up while every ancestor up to here is itself a single-child
+        // parent. In steady-state use (collapse after every prune) this is
+        // a no-op, but the walk-up makes the first call robust if the tree
+        // already carries chains from generations before collapse was on.
+        while (s->getParent() != nullptr
+               && s->getParent()->getChildren().size() == 1) {
+            s = s->getParent();
+        }
+        chain_starts.insert(s);
+    }
+
+    int total_absorbed = 0;
+    for (Branch* b0 : chain_starts) {
+        // A chain start may sit inside another chain that we already
+        // collapsed; the pointer is then no longer in branch_to_index.
+        if (branch_to_index.find(b0) == branch_to_index.end()) {
+            continue;
+        }
+        total_absorbed += collapseChainFrom(b0, length_max);
+    }
+    return total_absorbed;
+}
+
+std::vector<int> Tree::getLastPruneParentIndices() const {
+    std::vector<int> out;
+    out.reserve(last_prune_parents_.size());
+    for (const Branch* p : last_prune_parents_) {
+        auto it = branch_to_index.find(p);
+        if (it != branch_to_index.end()) {
+            out.push_back(it->second);
+        }
+    }
+    return out;
 }
 
 // ---------- nb_leaves / leaf indices -----------------------------------------

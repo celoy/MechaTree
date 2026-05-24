@@ -323,6 +323,60 @@ cdef class PyTree:
         cdef vector[int] v = self.c_tree.leafIndices()
         return [v[i] for i in range(v.size())]
 
+    def collapse_single_child_chains(self, double length_max=10.0):
+        """Fuse every maximal single-child run into one straight segment.
+
+        Walks the tree depth-first. Any branch whose only child has only one
+        child (and so on) starts a *chain*: a strip of single-child parents.
+        Each strip is replaced by one segment running straight from the
+        strip's first branch to the strip's tip. Volume (sum of
+        ``pi/4 * d**2 * L`` over the merged branches) is preserved and the
+        new diameter is back-solved from the new (Euclidean) length.
+
+        ``length_max`` (default 10.0) caps the resulting merged segment's
+        Euclidean length. A chain is only extended while the prospective
+        merged length stays at or below ``length_max``; beyond that point
+        the chain is truncated and the next-down branch becomes the merged
+        segment's child.
+
+        Returns the number of branches absorbed. Does *not* call
+        ``reorder()`` — the caller is expected to do so before the next
+        phase that reads ``nb_leaves`` (e.g. ``requested_growth``).
+
+        O(N) — walks every branch. Prefer ``collapse_chains_after_prune``
+        for the steady-state case where only a handful of chains formed in
+        the most recent pruning pass.
+        """
+        return self.c_tree.collapseSingleChildChains(length_max)
+
+    def collapse_chains_after_prune(self, double length_max=10.0):
+        """Targeted variant: collapse only the chains seeded by the
+        most recent ``prune`` call.
+
+        ``prune`` records the parents of every cut subtree on the tree.
+        This method walks up from each of those parents to the chain start
+        and runs the same merge logic as ``collapse_single_child_chains``,
+        with the same ``length_max`` semantics. O(P + total chain length)
+        where P is the cut-parent set's size — typically a handful per
+        generation versus the whole tree.
+
+        Returns the number of branches absorbed.
+        """
+        return self.c_tree.collapseChainsAfterPrune(length_max)
+
+    def get_last_prune_parents(self):
+        """Parents of the subtrees removed by the most recent ``prune`` call.
+
+        Empty when no pruning has occurred. Indices are computed at call
+        time, so they remain valid even if later operations
+        (``primary_growth``, ``add_branch_with_geometry``, etc.) have
+        shifted indices since the prune. Mainly useful for benchmarking /
+        introspection — ``collapse_chains_after_prune`` reads the same
+        state internally via pointers.
+        """
+        cdef vector[int] v = self.c_tree.getLastPruneParentIndices()
+        return [v[i] for i in range(v.size())]
+
     def wind_force(self, int index, V):
         """Wind force and moment on a single branch.
 

@@ -37,8 +37,9 @@ def trunk():
 
 def test_typed_scalar_defaults_are_zero(trunk):
     """Fresh branches have all typed scalars at zero, independent of any
-    dict the user passed at construction."""
-    assert trunk.get_length(0) == pytest.approx(0.0)
+    dict the user passed at construction. ``length`` is the one exception —
+    it defaults to 1.0 (the simulator-wide ``twig_length``)."""
+    assert trunk.get_length(0) == pytest.approx(1.0)
     assert trunk.get_diameter(0) == pytest.approx(0.0)
     assert trunk.get_light(0) == pytest.approx(0.0)
     assert trunk.get_stress(0) == pytest.approx(0.0)
@@ -114,11 +115,11 @@ def test_add_branch_with_geometry_oblique_parent():
 
 def test_property_map_and_typed_field_are_independent(trunk):
     """A trunk built with `{"length": 7.0}` exposes that value via the
-    property map, but the typed `length` field is still zero. The two
-    storages do not auto-mirror."""
+    property map, but the typed `length` field still holds its default
+    (1.0). The two storages do not auto-mirror."""
     t = PyTree({"length": 7.0})
     assert t.get_property(0, "length") == pytest.approx(7.0)
-    assert t.get_length(0) == pytest.approx(0.0)
+    assert t.get_length(0) == pytest.approx(1.0)
 
     # Writing through the typed setter does not touch the property map.
     t.set_length(0, 3.0)
@@ -165,5 +166,6 @@ def test_dict_built_branch_preserves_property_map(trunk):
     trunk.add_branch(0, {"length": 0.5, "radius": 0.05})
     assert trunk.get_property(1, "length") == pytest.approx(0.5)
     assert trunk.get_property(1, "radius") == pytest.approx(0.05)
-    assert trunk.get_length(1) == pytest.approx(0.0)
+    # Typed `length` default is 1.0; the property-map "length" is independent.
+    assert trunk.get_length(1) == pytest.approx(1.0)
     assert trunk.get_diameter(1) == pytest.approx(0.0)

@@ -192,13 +192,24 @@ YAML config:
 A worked end-to-end example showing all four levers lives in
 ``examples/custom_simulation.py``.
 
-.. note::
+Beyond the constants, ``mechatree.genome`` also ships
+:class:`mechatree.genome.NeuralSafety` and
+:class:`mechatree.genome.NeuralAllocation` — direct ports of the
+three-layer tanh networks evolved in Eloy et al. 2017. Load a champion
+genome with :func:`mechatree.genome.load_champion`:
 
-   Non-constant ``SafetyModel`` / ``AllocationModel`` subclasses are not
-   yet pluggable from Python — the C++ side dispatches through a virtual
-   ``compute()`` and needs a concrete subclass. A neural-network genome
-   port is a self-contained later step; until it lands, your runtime
-   knob is the constant value plus the wind / sun functions.
+.. code-block:: python
+
+   from mechatree.genome import load_champion
+
+   safety, allocation, meta = load_champion(
+       "data/S3_champions.json", species_id=0
+   )
+   tree = grow_tree(cfg, n_generations=100, seed=42,
+                    safety=safety, allocation=allocation)
+
+Or set ``genome.neural_from`` in the YAML config and ``load_config``
+will build the neural models for you.
 
 
 Examples
@@ -214,8 +225,28 @@ Simulation tutorials (Step 11+):
   over time and a top-down map of the final stand.
 - ``examples/custom_simulation.py`` — three side-by-side runs with
   different wind / sun / genome settings.
+- ``examples/plot_strahler.py`` — Strahler-order diagnostics
+  (self-similarity, Leonardo's rule, Tokunaga matrix).
 - ``examples/forest.yaml`` — annotated configuration with the Fortran
   parameter names in comments.
+
+Annotated notebooks for the same tutorials live under ``notebooks/``,
+with prose between the cells:
+
+- ``notebooks/01_grow_one_tree.ipynb`` — companion to
+  ``examples/grow_one_tree.py``.
+- ``notebooks/02_forest_under_wind.ipynb`` — population & biomass
+  dynamics, self-thinning.
+- ``notebooks/03_neural_genome.ipynb`` — load an evolved S3 champion
+  and compare side-by-side with the default constant genome.
+- ``notebooks/04_custom_growth_law.ipynb`` — plug in custom ``wind_fn``,
+  ``Sun``, ``ConstantSafety``, ``ConstantAllocation``.
+- ``notebooks/05_strahler_diagnostics.ipynb`` — self-similar branching
+  analysis.
+
+Install the notebook extra (``uv pip install -e ".[notebooks]"``) and
+launch with ``uv run jupyter lab``. Output cells are stripped by
+``nbstripout`` before commit; re-execute to populate the plots.
 
 Legacy topology demos (Step 3):
 

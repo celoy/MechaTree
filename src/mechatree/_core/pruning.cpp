@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <random>
+#include <unordered_set>
 #include <vector>
 
 #include "branch.h"
@@ -46,6 +47,10 @@ int prune(Tree& tree,
           const std::array<double, 3>& wind,
           double leaf_drag_S0,
           double cauchy) {
+    // Always start with an empty parents list — every prune call refreshes
+    // it, including the early-out paths.
+    tree.setLastPruneParents(std::vector<Branch*>{});
+
     const int N = tree.getNumberOfBranches();
     if (N <= 1) return 0;  // never cut the trunk in isolation
 
@@ -110,7 +115,25 @@ int prune(Tree& tree,
 
     if (to_cut.empty()) return 0;
 
+    // Capture parent pointers BEFORE removeBranches: indices will shift, but
+    // parent pointers (the chain-start candidates) survive the removal.
+    // Dedupe in pointer space so a single parent that loses several children
+    // is recorded once.
+    std::unordered_set<Branch*> parent_set;
+    for (int idx : to_cut) {
+        if (idx < 0 || idx >= tree.getNumberOfBranches()) continue;
+        Branch* b = tree.getBranch(idx);
+        Branch* p = b->getParent();
+        if (p != nullptr) {
+            parent_set.insert(p);
+        }
+    }
+
     const int before = tree.getNumberOfBranches();
     tree.removeBranches(to_cut);
+
+    tree.setLastPruneParents(
+        std::vector<Branch*>(parent_set.begin(), parent_set.end()));
+
     return before - tree.getNumberOfBranches();
 }

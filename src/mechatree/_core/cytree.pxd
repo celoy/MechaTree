@@ -121,6 +121,9 @@ cdef extern from "tree.h" nogil:
         int    getNbLeaves()
         vector[int] leafIndices()
         void   removeBranches(vector[int] indices) except +
+        int    collapseSingleChildChains(double length_max) except +
+        int    collapseChainsAfterPrune(double length_max) except +
+        vector[int] getLastPruneParentIndices()
 
 cdef extern from "mechanics.h" nogil:
     void cpp_wind_force "wind_force"(
