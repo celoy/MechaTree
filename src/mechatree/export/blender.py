@@ -304,8 +304,13 @@ def to_blender_script(
         "branches": branches,
         "palette": [list(c) for c in palette],
         "leaf_color": list(leaf_color),
-        "render_path": str(Path(render_path).resolve()) if render_path else None,
-        "save_blend_path": str(Path(save_blend_path).resolve()) if save_blend_path else None,
+        # Use posix-style paths in the JSON payload so the generated script
+        # is portable across platforms and survives JSON's backslash
+        # escaping. Blender accepts forward slashes on Windows just fine.
+        "render_path": Path(render_path).resolve().as_posix() if render_path else None,
+        "save_blend_path": (
+            Path(save_blend_path).resolve().as_posix() if save_blend_path else None
+        ),
         "image_resolution": list(image_resolution),
         "camera_offset": list(camera_offset),
         "add_ground": add_ground,

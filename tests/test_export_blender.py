@@ -55,9 +55,9 @@ def test_script_records_render_and_save_paths(tmp_path):
     )
     code = script.read_text()
 
-    # The paths show up resolved in the embedded JSON.
-    assert str(render.resolve()) in code
-    assert str(blend.resolve()) in code
+    # The paths show up resolved (posix form) in the embedded JSON.
+    assert render.resolve().as_posix() in code
+    assert blend.resolve().as_posix() in code
     assert '"image_resolution": [\n    640,\n    480\n  ]' in code
 
 
