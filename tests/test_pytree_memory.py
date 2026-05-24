@@ -11,11 +11,13 @@ once the destructors land.
 
 import gc
 import platform
-import resource
 
 import pytest
 
-from mechatree import PyTree
+# `resource` is a Unix-only stdlib module — skip the whole file on Windows.
+resource = pytest.importorskip("resource")
+
+from mechatree import PyTree  # noqa: E402
 
 
 def _maxrss_bytes() -> int:
