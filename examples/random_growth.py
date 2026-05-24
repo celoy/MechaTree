@@ -55,7 +55,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=300, help="Number of generations.")
     parser.add_argument("--seed", type=int, default=None, help="RNG seed for reproducibility.")
-    parser.add_argument("--no-show", action="store_true", help="Skip the matplotlib window.")
+    parser.add_argument("--no-show", action="store_true", help="Skip opening the plotly figure.")
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -64,11 +64,9 @@ def main() -> None:
     tree = run(args.iterations)
     print(f"Final tree size: {tree.get_number_of_branches()}")
 
-    plot_3d(tree)
+    fig = plot_3d(tree)
     if not args.no_show:
-        import matplotlib.pyplot as plt
-
-        plt.show()
+        fig.show()
 
 
 if __name__ == "__main__":

@@ -63,10 +63,8 @@ def main() -> None:
             print(f"{stats.generation:>6}  {stats.n_trees:>10}  {stats.biomass_total:>12.3f}")
 
     if not args.no_show:
-        import matplotlib.pyplot as plt
-
-        plot_self_thinning(history)
-        plt.show()
+        fig = plot_self_thinning(history)
+        fig.show()
 
 
 if __name__ == "__main__":

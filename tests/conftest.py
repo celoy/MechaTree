@@ -1,4 +1,1 @@
-import matplotlib
-
-# Force a headless backend before any test imports pyplot.
-matplotlib.use("Agg")
+# Plotly figures don't need a display, so no backend setup is required.

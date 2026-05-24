@@ -1,10 +1,12 @@
-"""Reusable plotting helpers — Python ports of the MATLAB scripts in
+"""Plotly ports of the MATLAB analysis scripts in
 ``../Eloy2017_NatComm_archive/``.
 
 Each helper takes pre-computed simulation data (a tree, a forest, or a
-history of stats objects) and returns the matplotlib ``Figure`` it drew
-on. The example scripts in ``examples/`` are thin CLI wrappers that
-drive a simulation and call these.
+history of stats objects) and returns the
+:class:`plotly.graph_objects.Figure` it drew. The example scripts in
+``examples/`` are thin CLI wrappers that drive a simulation and call
+these — call ``fig.show()`` to open a browser tab, or display inline in
+a Jupyter notebook.
 
 - :func:`plot_self_thinning` — population, biomass, and N-vs-M (log-log).
   Port of ``self_thinning.m``.
@@ -20,12 +22,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-import matplotlib.pyplot as plt
-
 from mechatree._core import PyTree
 
 
-def plot_self_thinning(history, ax=None):
+def plot_self_thinning(history):
     """Population, biomass, and N-vs-M log-log on a 1×3 grid.
 
     Parameters
@@ -33,115 +33,197 @@ def plot_self_thinning(history, ax=None):
     history:
         Iterable of ``(generation, n_trees, biomass)`` tuples, or
         :class:`mechatree.forest.ForestStats` objects.
-    ax:
-        Optional sequence of three matplotlib axes. A new figure is made
-        if omitted.
 
     Returns
     -------
-    matplotlib.figure.Figure
+    plotly.graph_objects.Figure
     """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
     gens, ns, ms = _unpack_thinning(history)
 
-    if ax is None:
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    else:
-        axes = list(ax)
-        if len(axes) != 3:
-            raise ValueError("plot_self_thinning needs exactly 3 axes")
-        fig = axes[0].figure
+    fig = make_subplots(
+        rows=1,
+        cols=3,
+        subplot_titles=(
+            "Population over time",
+            "Biomass over time",
+            "Self-thinning (log-log)",
+        ),
+    )
 
-    axes[0].plot(gens, ns, color="forestgreen")
-    axes[0].set_xlabel("generation")
-    axes[0].set_ylabel("N (trees alive)")
-    axes[0].set_title("Population over time")
+    fig.add_trace(
+        go.Scatter(
+            x=gens,
+            y=ns,
+            mode="lines",
+            line=dict(color="forestgreen"),  # noqa: C408
+            showlegend=False,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=gens,
+            y=ms,
+            mode="lines",
+            line=dict(color="saddlebrown"),  # noqa: C408
+            showlegend=False,
+        ),
+        row=1,
+        col=2,
+    )
 
-    axes[1].plot(gens, ms, color="saddlebrown")
-    axes[1].set_xlabel("generation")
-    axes[1].set_ylabel("M (total biomass)")
-    axes[1].set_title("Biomass over time")
-
-    # Pairs where N > 0 — log axes can't take zero.
     pairs = [(n, m) for n, m in zip(ns, ms, strict=True) if n > 0 and m > 0]
     if pairs:
-        ax_log = axes[2]
         xs = [p[0] for p in pairs]
         ys = [p[1] for p in pairs]
-        ax_log.loglog(xs, ys, "o-", color="black", markersize=3)
-        # Reference line: M ~ N^{-3/2} — Yoda 1963's self-thinning law.
+        fig.add_trace(
+            go.Scatter(
+                x=xs,
+                y=ys,
+                mode="lines+markers",
+                line=dict(color="black"),  # noqa: C408
+                marker=dict(size=4),  # noqa: C408
+                name="data",
+                showlegend=False,
+            ),
+            row=1,
+            col=3,
+        )
+        # Reference line: M ∝ N^{-3/2} (Yoda 1963).
         n_anchor = min(xs)
         m_anchor = max(ys)
         ref_n = [min(xs), max(xs)]
         ref_m = [m_anchor * (n_anchor / n) ** 1.5 for n in ref_n]
-        ax_log.loglog(ref_n, ref_m, "--r", label=r"$M \propto N^{-3/2}$")
-        ax_log.legend()
-        ax_log.set_xlabel("N (trees alive)")
-        ax_log.set_ylabel("M (total biomass)")
-        ax_log.set_title("Self-thinning (log-log)")
-    else:
-        axes[2].text(0.5, 0.5, "no data", ha="center", va="center")
-        axes[2].set_axis_off()
+        fig.add_trace(
+            go.Scatter(
+                x=ref_n,
+                y=ref_m,
+                mode="lines",
+                line=dict(color="red", dash="dash"),  # noqa: C408
+                name="M ∝ N^{-3/2}",
+            ),
+            row=1,
+            col=3,
+        )
+        fig.update_xaxes(type="log", row=1, col=3)
+        fig.update_yaxes(type="log", row=1, col=3)
 
-    fig.tight_layout()
+    fig.update_xaxes(title_text="generation", row=1, col=1)
+    fig.update_yaxes(title_text="N (trees alive)", row=1, col=1)
+    fig.update_xaxes(title_text="generation", row=1, col=2)
+    fig.update_yaxes(title_text="M (total biomass)", row=1, col=2)
+    fig.update_xaxes(title_text="N (trees alive)", row=1, col=3)
+    fig.update_yaxes(title_text="M (total biomass)", row=1, col=3)
+
+    fig.update_layout(
+        width=1200,
+        height=400,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin=dict(l=60, r=20, t=40, b=50),  # noqa: C408
+    )
     return fig
 
 
-def plot_allocation(stats_history, volume_twig: float = 1.0, ax=None):
+def plot_allocation(stats_history, volume_twig: float = 1.0):
     """Per-generation allocation diagnostics for a single tree.
 
     Reproduces the columns of the Fortran ``ZAllocation.dat`` file
     (``mod_tools.f90`` ``save_allocation``): branches alive, wind
-    amplitude, new seeds dropped, branches pruned, reserve normalised
-    by ``volume_twig``. All five on one ``semilogy`` plot.
+    amplitude, new seeds dropped, branches pruned, reserve normalised by
+    ``volume_twig``. All five overlaid on a semilog y-axis.
 
     Parameters
     ----------
     stats_history:
-        Iterable of :class:`mechatree.simulate.TreeStats` objects (one
-        per generation, in order).
+        Iterable of :class:`mechatree.simulate.TreeStats` objects.
     volume_twig:
         Base twig volume — ``reserve`` is divided by this to make the
         units match the Fortran plot. Defaults to 1 (raw reserve).
-    ax:
-        Optional axes; a new figure is made if omitted.
 
     Returns
     -------
-    matplotlib.figure.Figure
+    plotly.graph_objects.Figure
     """
+    import plotly.graph_objects as go
+
     stats = list(stats_history)
     gens = [s.generation for s in stats]
-    n_branches = [s.n_branches for s in stats]
-    wind_amp = [s.wind_amplitude for s in stats]
-    n_seeds = [s.n_seeds for s in stats]
-    n_pruned = [s.n_pruned for s in stats]
-    reserve_units = [s.reserve / volume_twig for s in stats]
 
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(10, 5))
-    else:
-        fig = ax.figure
-
-    # Semilog can't show zero — clamp at 0.5 so quiet steps stay visible.
+    # Semilog y can't take zero — clamp at 0.5 so quiet steps stay visible.
     # (Fortran does the same trick.)
     def safe(series):
         return [max(0.5, v) for v in series]
 
-    ax.semilogy(gens, safe(n_branches), "k-", label="N branches")
-    ax.semilogy(gens, safe(wind_amp), "r-", label="wind amplitude")
-    ax.semilogy(gens, safe(n_seeds), "m-", label="new seeds")
-    ax.semilogy(gens, safe(n_pruned), "-co", markersize=3, label="N pruned")
-    ax.semilogy(gens, safe(reserve_units), "--k", label="reserve / V_twig")
-    ax.set_xlabel("generation")
-    ax.set_ylabel("count / amplitude / multiples of V_twig")
-    ax.set_title("Per-step allocation")
-    ax.legend(loc="best")
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=gens,
+            y=safe([s.n_branches for s in stats]),
+            mode="lines",
+            line=dict(color="black"),  # noqa: C408
+            name="N branches",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=gens,
+            y=safe([s.wind_amplitude for s in stats]),
+            mode="lines",
+            line=dict(color="red"),  # noqa: C408
+            name="wind amplitude",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=gens,
+            y=safe([s.n_seeds for s in stats]),
+            mode="lines",
+            line=dict(color="magenta"),  # noqa: C408
+            name="new seeds",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=gens,
+            y=safe([s.n_pruned for s in stats]),
+            mode="lines+markers",
+            line=dict(color="cyan"),  # noqa: C408
+            marker=dict(size=4),  # noqa: C408
+            name="N pruned",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=gens,
+            y=safe([s.reserve / volume_twig for s in stats]),
+            mode="lines",
+            line=dict(color="black", dash="dash"),  # noqa: C408
+            name="reserve / V_twig",
+        )
+    )
+
+    fig.update_layout(
+        title="Per-step allocation",
+        xaxis_title="generation",
+        yaxis_title="count / amplitude / multiples of V_twig",
+        yaxis_type="log",
+        width=900,
+        height=500,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin=dict(l=60, r=20, t=60, b=50),  # noqa: C408
+    )
+    fig.update_xaxes(gridcolor="lightgrey")
+    fig.update_yaxes(gridcolor="lightgrey")
     return fig
 
 
-def plot_strahler_diagnostics(tree: PyTree, ax=None):
+def plot_strahler_diagnostics(tree: PyTree):
     """Strahler-order self-similarity panel for one tree.
 
     Four panels:
@@ -160,60 +242,99 @@ def plot_strahler_diagnostics(tree: PyTree, ax=None):
     tree:
         A :class:`mechatree._core.PyTree`. Strahler order is set as a
         side-effect of running the diagnostics.
-    ax:
-        Optional 2×2 array (or 4-element sequence) of axes.
 
     Returns
     -------
-    matplotlib.figure.Figure
+    plotly.graph_objects.Figure
     """
-    # Lazy import to avoid pulling numpy at module load.
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
     from mechatree.stats import leonardo_ratios, strahler_summary
 
     summary = strahler_summary(tree)
     ratios = leonardo_ratios(tree)
 
-    if ax is None:
-        fig, axes = plt.subplots(2, 2, figsize=(12, 9))
-        axes = axes.ravel()
-    else:
-        axes = list(ax)
-        if len(axes) != 4:
-            raise ValueError("plot_strahler_diagnostics needs exactly 4 axes")
-        fig = axes[0].figure
+    title4 = f"Area-preservation at {ratios.size} junctions" if ratios.size else "Area-preservation"
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        subplot_titles=(
+            "Branch count per order",
+            "Mean length per order",
+            "Mean area per order",
+            title4,
+        ),
+    )
 
     orders = list(range(1, summary.max_order + 1))
+    marker = dict(color="black", size=6)  # noqa: C408
 
-    axes[0].semilogy(orders, summary.n_branches, "ok")
-    axes[0].set_xlabel("Strahler order")
-    axes[0].set_ylabel("N branches")
-    axes[0].set_title("Branch count per order")
-    axes[0].grid(True, alpha=0.3)
-
-    axes[1].semilogy(orders, summary.mean_length, "ok")
-    axes[1].set_xlabel("Strahler order")
-    axes[1].set_ylabel("mean length")
-    axes[1].set_title("Mean length per order")
-    axes[1].grid(True, alpha=0.3)
-
-    axes[2].semilogy(orders, summary.mean_area, "ok")
-    axes[2].set_xlabel("Strahler order")
-    axes[2].set_ylabel("mean cross-section area")
-    axes[2].set_title("Mean area per order")
-    axes[2].grid(True, alpha=0.3)
+    fig.add_trace(
+        go.Scatter(x=orders, y=summary.n_branches, mode="markers", marker=marker, showlegend=False),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=orders, y=summary.mean_length, mode="markers", marker=marker, showlegend=False
+        ),
+        row=1,
+        col=2,
+    )
+    fig.add_trace(
+        go.Scatter(x=orders, y=summary.mean_area, mode="markers", marker=marker, showlegend=False),
+        row=2,
+        col=1,
+    )
 
     if ratios.size:
-        axes[3].hist(ratios, bins=20, color="forestgreen", edgecolor="black")
-        axes[3].axvline(1.0, color="red", linestyle="--", label="Leonardo (=1)")
-        axes[3].set_xlabel(r"$(A_\mathrm{L} + A_\mathrm{R}) / A_\mathrm{P}$")
-        axes[3].set_ylabel("count")
-        axes[3].set_title(f"Area-preservation at {ratios.size} junctions")
-        axes[3].legend()
+        fig.add_trace(
+            go.Histogram(
+                x=ratios,
+                nbinsx=20,
+                marker=dict(  # noqa: C408
+                    color="forestgreen",
+                    line=dict(color="black", width=1),  # noqa: C408
+                ),
+                showlegend=False,
+            ),
+            row=2,
+            col=2,
+        )
+        fig.add_vline(
+            x=1.0,
+            line=dict(color="red", dash="dash"),  # noqa: C408
+            annotation_text="Leonardo (=1)",
+            row=2,
+            col=2,
+        )
     else:
-        axes[3].text(0.5, 0.5, "no binary junctions", ha="center", va="center")
-        axes[3].set_axis_off()
+        fig.add_annotation(
+            text="no binary junctions",
+            xref="x4",
+            yref="y4",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+        )
 
-    fig.tight_layout()
+    fig.update_xaxes(title_text="Strahler order", row=1, col=1)
+    fig.update_yaxes(title_text="N branches", type="log", row=1, col=1)
+    fig.update_xaxes(title_text="Strahler order", row=1, col=2)
+    fig.update_yaxes(title_text="mean length", type="log", row=1, col=2)
+    fig.update_xaxes(title_text="Strahler order", row=2, col=1)
+    fig.update_yaxes(title_text="mean cross-section area", type="log", row=2, col=1)
+    fig.update_xaxes(title_text="(A_L + A_R) / A_P", row=2, col=2)
+    fig.update_yaxes(title_text="count", row=2, col=2)
+
+    fig.update_layout(
+        width=1100,
+        height=800,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin=dict(l=60, r=20, t=60, b=50),  # noqa: C408
+    )
     return fig
 
 
@@ -226,8 +347,6 @@ def _unpack_thinning(history: Iterable) -> tuple[list[int], list[int], list[floa
         if isinstance(entry, tuple):
             g, n, m = entry
         else:
-            # Duck-type ForestStats — must have `.generation`, `.n_trees`,
-            # `.biomass_total`.
             g = entry.generation
             n = entry.n_trees
             m = entry.biomass_total

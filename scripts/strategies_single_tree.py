@@ -37,8 +37,9 @@ import argparse
 import json
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 DEFAULT_DAT = Path("/Users/Ch/Documents/Arbres/FORTRAN/ART_Analysis_LAD/S3.dat")
 DEFAULT_DATA_DIR = Path(__file__).parent.parent / "data"
@@ -214,50 +215,56 @@ def species_scatter(
     labels: np.ndarray,
     reps: list[int],
     title: str,
-) -> plt.Figure:
-    fig, ax = plt.subplots(figsize=(7, 7))
-    palette = np.array([[0.20, 0.45, 0.85], [0.20, 0.75, 0.40]])  # blue, green
+) -> go.Figure:
+    palette = ["rgb(51,115,217)", "rgb(51,191,102)"]  # blue, green
+    fig = go.Figure()
     for k in np.unique(labels):
         m = labels == k
-        ax.scatter(
-            tag_genes[m, 0],
-            tag_genes[m, 1],
-            c=[palette[k % 2]],
-            s=8,
-            alpha=0.6,
-            edgecolors="none",
-            label=f"species {k} ({m.sum()} indiv)",
+        fig.add_trace(
+            go.Scatter(
+                x=tag_genes[m, 0],
+                y=tag_genes[m, 1],
+                mode="markers",
+                marker=dict(color=palette[int(k) % 2], size=5, opacity=0.6),  # noqa: C408
+                name=f"species {k} ({m.sum()} indiv)",
+            )
         )
     for k, idx in enumerate(reps):
-        ax.scatter(
-            tag_genes[idx, 0],
-            tag_genes[idx, 1],
-            marker="*",
-            c="red",
-            s=200,
-            edgecolors="black",
-            linewidths=0.5,
-            label=f"species {k} champion (idx {idx})",
+        fig.add_trace(
+            go.Scatter(
+                x=[tag_genes[idx, 0]],
+                y=[tag_genes[idx, 1]],
+                mode="markers",
+                marker=dict(  # noqa: C408
+                    symbol="star",
+                    color="red",
+                    size=18,
+                    line=dict(color="black", width=1),  # noqa: C408
+                ),
+                name=f"species {k} champion (idx {idx})",
+            )
         )
-    ax.set_xlabel("tag gene 1 (matlab col 39)")
-    ax.set_ylabel("tag gene 2 (matlab col 40)")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_aspect("equal")
-    ax.set_title(title)
-    ax.legend(loc="best", fontsize=9)
-    fig.tight_layout()
+    fig.update_layout(
+        title=title,
+        xaxis=dict(  # noqa: C408
+            title="tag gene 1 (matlab col 39)", range=[0, 1], scaleanchor="y", scaleratio=1
+        ),
+        yaxis=dict(title="tag gene 2 (matlab col 40)", range=[0, 1]),  # noqa: C408
+        width=700,
+        height=700,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+    )
     return fig
 
 
-def strategy_figure(nbranch: np.ndarray, nreserve: np.ndarray, title: str) -> plt.Figure:
+def strategy_figure(nbranch: np.ndarray, nreserve: np.ndarray, title: str) -> go.Figure:
     """2x2 strategy panels in the Nat Commun figure's visual style.
 
     Layout: b Safety, c Photosensitivity, d Biomass for segments, e Biomass for seeds.
-    Axis ranges and color scales match `strategies_Forest.m` from
-    ART_Analysis_LAD/ART_Strategies/ (the variant whose plots match the paper
-    figure): nb_leaves 0..100, max_stress 0..0.5, vol_relative 0..2.
-    Safety contours 0..4, allocation contours 0..1.
+    Axis ranges and colour scales match ``strategies_Forest.m``: nb_leaves
+    0..100, max_stress 0..0.5, vol_relative 0..2. Safety contours 0..4,
+    allocation contours 0..1.
     """
     i = np.arange(GRID_N)[:, None] * np.ones((1, GRID_N))
     j = np.arange(GRID_N)[None, :] * np.ones((GRID_N, 1))
@@ -268,73 +275,89 @@ def strategy_figure(nbranch: np.ndarray, nreserve: np.ndarray, title: str) -> pl
     safety = neural_branch(nb_leaves, max_stress, nbranch)
     pseeds, pleaves, phototro = neural_reserve(nb_leaves, vol_relat, nreserve)
 
-    fig, axes = plt.subplots(2, 2, figsize=(9, 7.5))
-    fig.suptitle(title)
-
-    def panel(ax, X, Y, Z, xlabel, ylabel, sub_title, letter, vrange):
-        vmin, vmax = vrange
-        levels = np.linspace(vmin, vmax, 16)
-        cs = ax.contourf(
-            X, Y, Z, levels=levels, cmap="viridis", vmin=vmin, vmax=vmax, extend="both"
-        )
-        ax.contour(X, Y, Z, levels=levels, colors="k", linewidths=0.4)
-        fig.colorbar(cs, ax=ax, ticks=np.linspace(vmin, vmax, 5))
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        ax.set_title(sub_title)
-        ax.text(
-            -0.18, 1.05, letter, transform=ax.transAxes, fontsize=14, fontweight="bold", va="top"
-        )
-
-    panel(
-        axes[0, 0],
-        nb_leaves,
-        max_stress,
-        safety,
-        "number of foliages",
-        "relative stress",
-        "Safety",
-        "b",
-        SAFETY_VRANGE,
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        subplot_titles=(
+            "<b>b</b> Safety",
+            "<b>c</b> Photosensitivity",
+            "<b>d</b> Biomass for segments",
+            "<b>e</b> Biomass for seeds",
+        ),
+        horizontal_spacing=0.12,
+        vertical_spacing=0.12,
     )
-    panel(
-        axes[0, 1],
+
+    def add_panel(row, col, X, Y, Z, xlabel, ylabel, vrange):
+        vmin, vmax = vrange
+        # Distinct colorbars per panel.
+        cbar_x = 0.48 if col == 1 else 1.02
+        cbar_y = 0.79 if row == 1 else 0.21
+        fig.add_trace(
+            go.Contour(
+                x=X[0, :],
+                y=Y[:, 0],
+                z=Z,
+                contours=dict(start=vmin, end=vmax, size=(vmax - vmin) / 15),  # noqa: C408
+                line=dict(color="black", width=0.4),  # noqa: C408
+                colorscale="Viridis",
+                zmin=vmin,
+                zmax=vmax,
+                colorbar=dict(x=cbar_x, y=cbar_y, len=0.42, thickness=12),  # noqa: C408
+                showscale=True,
+            ),
+            row=row,
+            col=col,
+        )
+        fig.update_xaxes(title_text=xlabel, row=row, col=col)
+        fig.update_yaxes(title_text=ylabel, row=row, col=col)
+
+    add_panel(
+        1, 1, nb_leaves, max_stress, safety, "number of foliages", "relative stress", SAFETY_VRANGE
+    )
+    add_panel(
+        1,
+        2,
         nb_leaves,
         vol_relat,
         phototro,
         "total number of foliages",
         "relative biomass volume",
-        "Photosensitivity",
-        "c",
         ALLOC_VRANGE,
     )
-    panel(
-        axes[1, 0],
+    add_panel(
+        2,
+        1,
         nb_leaves,
         vol_relat,
         pleaves,
         "total number of foliages",
         "relative biomass volume",
-        "Biomass for segments",
-        "d",
         ALLOC_VRANGE,
     )
-    panel(
-        axes[1, 1],
+    add_panel(
+        2,
+        2,
         nb_leaves,
         vol_relat,
         pseeds,
         "total number of foliages",
         "relative biomass volume",
-        "Biomass for seeds",
-        "e",
         ALLOC_VRANGE,
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+
+    fig.update_layout(
+        title_text=title,
+        width=950,
+        height=850,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        showlegend=False,
+    )
     return fig
 
 
-def plot_from_json(json_path: Path, save_dir: Path | None) -> list[plt.Figure]:
+def plot_from_json(json_path: Path, save_dir: Path | None) -> list[go.Figure]:
     payload = json.loads(json_path.read_text())
     dataset = payload["dataset"]
     tag_genes = np.array(payload["tag_genes"])
@@ -352,7 +375,7 @@ def plot_from_json(json_path: Path, save_dir: Path | None) -> list[plt.Figure]:
             f"moment={s['champion_moment_leaves']:.4g}, n_seeds={s['champion_n_seeds']}"
         )
 
-    figs: list[plt.Figure] = []
+    figs: list[go.Figure] = []
     stem = Path(dataset).stem
 
     fig_s = species_scatter(
@@ -365,7 +388,7 @@ def plot_from_json(json_path: Path, save_dir: Path | None) -> list[plt.Figure]:
     figs.append(fig_s)
     if save_dir is not None:
         save_dir.mkdir(parents=True, exist_ok=True)
-        fig_s.savefig(save_dir / f"{stem}_species.png", dpi=120)
+        fig_s.write_image(str(save_dir / f"{stem}_species.png"))
 
     for s in species:
         nbranch = np.array(s["nn_branch"])
@@ -379,7 +402,7 @@ def plot_from_json(json_path: Path, save_dir: Path | None) -> list[plt.Figure]:
         )
         figs.append(fig)
         if save_dir is not None:
-            fig.savefig(save_dir / f"{stem}_species{s['species_id']}.png", dpi=120)
+            fig.write_image(str(save_dir / f"{stem}_species{s['species_id']}.png"))
 
     if save_dir is not None:
         print(f"saved {len(figs)} PNGs under {save_dir}")
@@ -415,7 +438,7 @@ def main() -> None:
     p.add_argument(
         "--no-show",
         action="store_true",
-        help="skip plt.show() (useful with --save-dir for headless runs).",
+        help="skip opening the plotly figures (useful with --save-dir for headless runs).",
     )
     args = p.parse_args()
 
@@ -424,10 +447,11 @@ def main() -> None:
             print(f"{args.json} not found — building from {args.dat}")
         build_from_dat(args.dat, args.json)
 
-    plot_from_json(args.json, args.save_dir)
+    figs = plot_from_json(args.json, args.save_dir)
 
     if not args.no_show:
-        plt.show()
+        for fig in figs:
+            fig.show()
 
 
 if __name__ == "__main__":

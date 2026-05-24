@@ -1,43 +1,39 @@
-"""3D wireframe plotting of a PyTree, used by the random-growth demo.
+"""3D wireframe plotting of a property-map ``PyTree`` (random-growth demo).
 
-Port of the 2017 intern's ``mod_3Dplot.pyx``. Pure Python.
+Port of the 2017 intern's ``mod_3Dplot.pyx`` to plotly.
 """
 
 from __future__ import annotations
 
 import math
 
-import matplotlib.pyplot as plt
 
-
-def plot_3d(tree, ax=None, leaf_length: float = 0.2):
+def plot_3d(tree, leaf_length: float = 0.2):
     """Render a 3D wireframe of ``tree``.
 
     Each branch must expose ``x``, ``y``, ``z``, ``theta`` and ``phi``
-    properties. Branches with no children are decorated with a short green
-    leaf segment in the tip direction.
+    properties. Branches with no children are decorated with a short
+    green leaf segment in the tip direction.
 
     Parameters
     ----------
     tree : PyTree
         The tree to render.
-    ax : mpl_toolkits.mplot3d.axes3d.Axes3D, optional
-        Existing 3D axes to draw onto. A new figure is created if omitted.
     leaf_length : float
         Length of the green leaf segment drawn past a leaf-branch's tip.
 
     Returns
     -------
-    matplotlib.figure.Figure
-        The figure that was drawn on.
+    plotly.graph_objects.Figure
     """
-    if ax is None:
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection="3d")
-    else:
-        fig = ax.figure
+    import plotly.graph_objects as go
 
-    ax.set_axis_off()
+    branch_x: list[float | None] = []
+    branch_y: list[float | None] = []
+    branch_z: list[float | None] = []
+    leaf_x: list[float | None] = []
+    leaf_y: list[float | None] = []
+    leaf_z: list[float | None] = []
 
     for n in range(tree.get_number_of_branches()):
         x1 = tree.get_property(n, "x")
@@ -49,17 +45,56 @@ def plot_3d(tree, ax=None, leaf_length: float = 0.2):
         dx = math.sin(theta) * math.cos(phi)
         dy = math.sin(theta) * math.sin(phi)
         dz = math.cos(theta)
+        x2, y2, z2 = x1 + dx, y1 + dy, z1 + dz
 
-        x2 = x1 + dx
-        y2 = y1 + dy
-        z2 = z1 + dz
-
-        ax.plot([x1, x2], [y1, y2], [z1, z2], "k", linewidth=2.5)
+        branch_x.extend([x1, x2, None])
+        branch_y.extend([y1, y2, None])
+        branch_z.extend([z1, z2, None])
 
         if tree.get_number_of_children(n) < 1:
-            xleaf = x2 + leaf_length * dx
-            yleaf = y2 + leaf_length * dy
-            zleaf = z2 + leaf_length * dz
-            ax.plot([x2, xleaf], [y2, yleaf], [z2, zleaf], "g", linewidth=5)
+            leaf_x.extend([x2, x2 + leaf_length * dx, None])
+            leaf_y.extend([y2, y2 + leaf_length * dy, None])
+            leaf_z.extend([z2, z2 + leaf_length * dz, None])
 
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter3d(
+            x=branch_x,
+            y=branch_y,
+            z=branch_z,
+            mode="lines",
+            line=dict(color="black", width=3),  # noqa: C408
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+    if leaf_x:
+        fig.add_trace(
+            go.Scatter3d(
+                x=leaf_x,
+                y=leaf_y,
+                z=leaf_z,
+                mode="lines",
+                line=dict(color="green", width=6),  # noqa: C408
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+    fig.update_layout(
+        scene=dict(  # noqa: C408
+            xaxis=dict(visible=False),  # noqa: C408
+            yaxis=dict(visible=False),  # noqa: C408
+            zaxis=dict(visible=False),  # noqa: C408
+            aspectmode="data",
+            camera=dict(  # noqa: C408
+                projection=dict(type="orthographic"),  # noqa: C408
+                eye=dict(x=0.9, y=0.9, z=0.45),  # noqa: C408
+            ),
+        ),
+        margin=dict(l=0, r=0, t=0, b=0),  # noqa: C408
+        paper_bgcolor="white",
+    )
     return fig
+
+
+__all__ = ["plot_3d"]

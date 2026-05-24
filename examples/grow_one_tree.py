@@ -33,7 +33,7 @@ def main() -> None:
     )
     parser.add_argument("--iterations", type=int, default=100, help="Number of generations.")
     parser.add_argument("--seed", type=int, default=42, help="Master RNG seed.")
-    parser.add_argument("--no-show", action="store_true", help="Skip the matplotlib window.")
+    parser.add_argument("--no-show", action="store_true", help="Skip opening the plotly figure.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -63,10 +63,8 @@ def main() -> None:
     )
 
     if not args.no_show:
-        import matplotlib.pyplot as plt
-
-        plot_tree_3d(tree)
-        plt.show()
+        fig = plot_tree_3d(tree)
+        fig.show()
 
 
 if __name__ == "__main__":

@@ -75,10 +75,8 @@ def main() -> None:
     print(T)
 
     if not args.no_show:
-        import matplotlib.pyplot as plt
-
-        plot_strahler_diagnostics(tree)
-        plt.show()
+        fig = plot_strahler_diagnostics(tree)
+        fig.show()
 
 
 if __name__ == "__main__":

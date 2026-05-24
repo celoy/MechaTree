@@ -56,10 +56,8 @@ def main() -> None:
             )
 
     if not args.no_show:
-        import matplotlib.pyplot as plt
-
-        plot_allocation(history, volume_twig=cfg.tree.volume_twig)
-        plt.show()
+        fig = plot_allocation(history, volume_twig=cfg.tree.volume_twig)
+        fig.show()
 
 
 if __name__ == "__main__":

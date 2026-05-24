@@ -10,7 +10,7 @@ MechaTree is a Python (with Cython + C++) port of a Fortran90 simulator of **tre
 
 1. **Fortran90 reference code** — written by the user, simulations published in Nat Commun (2017). Sources preserved in `legacy_fortran/`.
 2. **Diego Bengochea Paz's Python port (2017)** — Python + Cython + C++ library that handles tree architectures, written by Diego Bengochea Paz (ORCID [0000-0002-0835-3981](https://orcid.org/0000-0002-0835-3981)) during a 2017 internship. Lightly touched up Feb 2025. Preserved verbatim in `archive/`.
-3. **Modernization (in progress)** — canonical code lives in `src/mechatree/`. Steps 1–6 complete: scaffold, C++/Cython port, auxiliary modules, tests, Sphinx docs, CI matrix + cibuildwheel. The simulator port (Steps 8–12) is also done: mechanics + growth in the C++ core, a light-interception subpackage, single-tree orchestrator, and a forest container. Genome configurability is in: Step 14 (constants in YAML) and Step 16 (`NeuralSafety` / `NeuralAllocation`, loadable from a champion JSON written by the verification script) are landed. Remaining work is the PyPI release (Step 7), forester-facing tutorials (Step 13), and the optional SymPy-callable genome (Step 15).
+3. **Modernization (in progress)** — canonical code lives in `src/mechatree/`. Steps 1–6 complete: scaffold, C++/Cython port, auxiliary modules, tests, Sphinx docs, CI matrix + cibuildwheel. The simulator port (Steps 8–12) is also done: mechanics + growth in the C++ core, a light-interception subpackage, single-tree orchestrator, and a forest container. Genome configurability is in: Step 14 (constants in YAML) and Step 16 (`NeuralSafety` / `NeuralAllocation`, loadable from a champion JSON written by the verification script) are landed. The plotting layer has migrated from matplotlib to plotly (no matplotlib runtime dependency). Remaining work is the PyPI release (Step 7), forester-facing notebook tutorials (Step 13), and the optional SymPy-callable genome (Step 15).
 
 ## Where code lives
 
@@ -18,7 +18,7 @@ MechaTree is a Python (with Cython + C++) port of a Fortran90 simulator of **tre
 | --- | --- | --- |
 | `src/mechatree/_core/` | **Canonical** — compiled tree-architecture core (`PyTree`, branches, Strahler/Horton) + genome models (`SafetyModel` / `AllocationModel` and the `Constant*` / `Neural*` subclasses in `genome.h`) | Hot path; C++/Cython |
 | `src/mechatree/geometry/` | **Canonical** — geometric helpers (distance, etc.) | Pure Python |
-| `src/mechatree/plotting/` | **Canonical** — 2D / 3D matplotlib renderers | Pure Python |
+| `src/mechatree/plotting/` | **Canonical** — 2D / 3D plotly renderers | Pure Python |
 | `examples/` | Active | Recipe-style scripts + commented YAMLs for users |
 | `scripts/` | Active | Off-recipe tooling (e.g. `strategies_single_tree.py` — verifies an evolved genome against the 2017 paper and writes a champion JSON) |
 | `data/` | Active | Small reference datasets shared by scripts + tests + examples (e.g. `S3_champions.json`, the per-species champion weights extracted from the Fortran tournament dump) |
@@ -104,7 +104,14 @@ The user prefers staged steps.
 ### Up next
 
 - **Step 7 — First PyPI release.** Tag `v0.1.0`; release the current "tree architecture + simulator + neural genome" library. CHANGELOG should note scope: ships `PyTree` topology + geometry + plotting + mechanics + light + single-tree + forest + `Constant*` / `Neural*` genome models. Evolution is deferred to a separate package.
-- **Step 13 — Forester-facing examples & tutorials.** Jupyter notebooks: "Grow one tree from a YAML config", "Build a forest and watch it self-prune under wind", "Plug in your own growth law", "Grow a tree with one of the 2017 paper's evolved species". Ship a commented example YAML. Update `docs/userguide.rst`.
+- **Step 13 — Forester-facing examples & tutorials.** Annotated Jupyter notebooks under `notebooks/`, all rendering through **plotly inline** (the library has no matplotlib dependency). Each notebook walks through the science, the YAML config, and the code, with prose between cells. Concrete plan:
+  - `notebooks/01_grow_one_tree.ipynb` — load `examples/forest.yaml`, call `grow_tree`, display the Strahler-coloured 3D tree with `plot_tree_3d` (with leaves on/off toggles). Companion to [examples/grow_one_tree.py](examples/grow_one_tree.py).
+  - `notebooks/02_forest_under_wind.ipynb` — drive a `Forest`, animate population/biomass curves alongside the top-down view (`plot_forest_topdown`), show self-thinning emerging (`plot_self_thinning`). Companion to [examples/grow_a_forest.py](examples/grow_a_forest.py).
+  - `notebooks/03_neural_genome.ipynb` — load an S3 champion via `mechatree.genome.load_champion` (or YAML `genome.neural_from`), compare a tree grown with the constant default genome against the species-0 and species-1 champions side-by-side. Uses `data/S3_champions.json`.
+  - `notebooks/04_custom_growth_law.ipynb` — plug in user-supplied `wind_fn` and `sun` callables, vary `ConstantSafety` / `ConstantAllocation`, observe how trunk diameter, canopy depth and pruning rate respond. Companion to [examples/custom_simulation.py](examples/custom_simulation.py).
+  - `notebooks/05_strahler_diagnostics.ipynb` — grow a mature tree, render `plot_strahler_diagnostics` (4-panel: branch count, length, area per Strahler order + Leonardo's-rule histogram), discuss the self-similarity result from the paper. Companion to [examples/plot_strahler.py](examples/plot_strahler.py).
+
+  Ship a commented example YAML alongside the notebooks; refresh `docs/userguide.rst` to point at them.
 - **Step 15 — Callable genome from YAML via SymPy.** Allow `genome.safety` (and allocation fields) to be either a scalar *or* a string expression like `"3 * tanh(max_stress)"`. Parse with `sympy.sympify`, compile with `sympy.lambdify`, wrap as `SymPySafety` / `SymPyAllocation` subclasses of `SafetyModel` / `AllocationModel`. Inputs: the same `(nb_leaves, max_stress)` / `(nb_leaves, vol_relative)` pairs the Fortran NNs took. Validate against an allow-list of free symbols. Useful as a research tool sitting between `Constant*` and `Neural*`.
 
 ### Out of scope (do not re-litigate unless explicitly asked)

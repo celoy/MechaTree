@@ -28,8 +28,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-    "matplotlib>=3.7",
     "numpy>=1.26",
+    "plotly>=5.20",
+    "kaleido>=1.0",        # plotly.write_image static PNG/SVG export
     "pyyaml>=6.0",
 ]
 

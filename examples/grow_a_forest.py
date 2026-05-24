@@ -40,7 +40,7 @@ def main() -> None:
     parser.add_argument("--n-trees-init", type=int, default=20, help="Override initial tree count.")
     parser.add_argument("--size", type=float, default=30.0, help="Override forest radius.")
     parser.add_argument("--n-trees-max", type=int, default=300, help="Override population cap.")
-    parser.add_argument("--no-show", action="store_true", help="Skip matplotlib windows.")
+    parser.add_argument("--no-show", action="store_true", help="Skip opening the plotly figures.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -75,28 +75,57 @@ def main() -> None:
     print(f"Final: trees={final[1]}, biomass={final[2]:.2f}, total branches={final[3]}")
 
     if not args.no_show:
-        import matplotlib.pyplot as plt
+        import plotly.graph_objects as go
 
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        # Population & biomass over time (twin y-axis via plotly's yaxis2).
+        # The top-down view is opened separately because its equal-scale
+        # geometry doesn't compose cleanly into a subplot grid.
         gens = [h[0] for h in history]
         trees_over_time = [h[1] for h in history]
         biomass_over_time = [h[2] for h in history]
 
-        ax_left = axes[0]
-        ax_left.plot(gens, trees_over_time, label="trees alive", color="forestgreen")
-        ax_left.set_xlabel("generation")
-        ax_left.set_ylabel("trees alive", color="forestgreen")
-        ax_left.tick_params(axis="y", labelcolor="forestgreen")
-        ax_biomass = ax_left.twinx()
-        ax_biomass.plot(gens, biomass_over_time, color="saddlebrown", label="biomass")
-        ax_biomass.set_ylabel("total biomass", color="saddlebrown")
-        ax_biomass.tick_params(axis="y", labelcolor="saddlebrown")
-        ax_left.set_title("Population & biomass over time")
+        fig_history = go.Figure()
+        fig_history.add_trace(
+            go.Scatter(
+                x=gens,
+                y=trees_over_time,
+                name="trees alive",
+                line=dict(color="forestgreen"),  # noqa: C408
+                yaxis="y",
+            )
+        )
+        fig_history.add_trace(
+            go.Scatter(
+                x=gens,
+                y=biomass_over_time,
+                name="biomass",
+                line=dict(color="saddlebrown"),  # noqa: C408
+                yaxis="y2",
+            )
+        )
+        fig_history.update_layout(
+            title="Population & biomass over time",
+            xaxis_title="generation",
+            yaxis=dict(  # noqa: C408
+                title=dict(text="trees alive", font=dict(color="forestgreen")),  # noqa: C408
+                tickfont=dict(color="forestgreen"),  # noqa: C408
+            ),
+            yaxis2=dict(  # noqa: C408
+                title=dict(text="total biomass", font=dict(color="saddlebrown")),  # noqa: C408
+                tickfont=dict(color="saddlebrown"),  # noqa: C408
+                overlaying="y",
+                side="right",
+            ),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            width=900,
+            height=500,
+        )
+        fig_history.show()
 
-        plot_forest_topdown(forest, ax=axes[1])
-        axes[1].set_title(f"Final stand (n={len(forest.trees)})")
-        fig.tight_layout()
-        plt.show()
+        fig_top = plot_forest_topdown(forest)
+        fig_top.update_layout(title=f"Final stand (n={len(forest.trees)})")
+        fig_top.show()
 
 
 if __name__ == "__main__":

@@ -61,7 +61,7 @@ def main() -> None:
     )
     parser.add_argument("--iterations", type=int, default=80, help="Number of generations.")
     parser.add_argument("--seed", type=int, default=42, help="Master RNG seed.")
-    parser.add_argument("--no-show", action="store_true", help="Skip matplotlib window.")
+    parser.add_argument("--no-show", action="store_true", help="Skip opening the plotly figure.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -103,22 +103,24 @@ def main() -> None:
         )
 
     if not args.no_show:
-        import matplotlib.pyplot as plt
+        from plotly.subplots import make_subplots
 
-        fig = plt.figure(figsize=(15, 5))
-        for k, (label, tree) in enumerate(
-            [
-                ("default storm", t_default),
-                ("steady-west + overhead", t_steady),
-                ("calm-then-storm", t_late_storm),
-            ],
-            start=1,
-        ):
-            ax = fig.add_subplot(1, 3, k, projection="3d")
-            plot_tree_3d(tree, ax=ax)
-            ax.set_title(label)
-        fig.tight_layout()
-        plt.show()
+        scenarios = [
+            ("default storm", t_default),
+            ("steady-west + overhead", t_steady),
+            ("calm-then-storm", t_late_storm),
+        ]
+        fig = make_subplots(
+            rows=1,
+            cols=3,
+            specs=[[{"type": "scene"} for _ in scenarios]],
+            subplot_titles=[label for label, _ in scenarios],
+        )
+        for col, (_, tree) in enumerate(scenarios, start=1):
+            for trace in plot_tree_3d(tree).data:
+                fig.add_trace(trace, row=1, col=col)
+        fig.update_layout(width=1500, height=550, paper_bgcolor="white")
+        fig.show()
 
 
 if __name__ == "__main__":
