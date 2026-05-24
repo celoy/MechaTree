@@ -10,16 +10,18 @@ MechaTree is a Python (with Cython + C++) port of a Fortran90 simulator of **tre
 
 1. **Fortran90 reference code** — written by the user, simulations published in Nat Commun (2017). Sources preserved in `legacy_fortran/`.
 2. **Diego Bengochea Paz's Python port (2017)** — Python + Cython + C++ library that handles tree architectures, written by Diego Bengochea Paz (ORCID [0000-0002-0835-3981](https://orcid.org/0000-0002-0835-3981)) during a 2017 internship. Lightly touched up Feb 2025. Preserved verbatim in `archive/`.
-3. **Modernization (in progress)** — canonical code lives in `src/mechatree/`. Steps 1–6 complete: scaffold, C++/Cython port, auxiliary modules, tests, Sphinx docs, CI matrix + cibuildwheel. The simulator port (Steps 8–12) is also done: mechanics + growth in the C++ core, a light-interception subpackage, single-tree orchestrator, and a forest container. Remaining work is genome-configurability (Steps 14–16) plus the PyPI release (Step 7) and forester-facing tutorials (Step 13).
+3. **Modernization (in progress)** — canonical code lives in `src/mechatree/`. Steps 1–6 complete: scaffold, C++/Cython port, auxiliary modules, tests, Sphinx docs, CI matrix + cibuildwheel. The simulator port (Steps 8–12) is also done: mechanics + growth in the C++ core, a light-interception subpackage, single-tree orchestrator, and a forest container. Genome configurability is in: Step 14 (constants in YAML) and Step 16 (`NeuralSafety` / `NeuralAllocation`, loadable from a champion JSON written by the verification script) are landed. Remaining work is the PyPI release (Step 7), forester-facing tutorials (Step 13), and the optional SymPy-callable genome (Step 15).
 
 ## Where code lives
 
 | Path | Status | Rule |
 | --- | --- | --- |
-| `src/mechatree/_core/` | **Canonical** — compiled tree-architecture core (`PyTree`, branches, Strahler/Horton) | Hot path; C++/Cython |
+| `src/mechatree/_core/` | **Canonical** — compiled tree-architecture core (`PyTree`, branches, Strahler/Horton) + genome models (`SafetyModel` / `AllocationModel` and the `Constant*` / `Neural*` subclasses in `genome.h`) | Hot path; C++/Cython |
 | `src/mechatree/geometry/` | **Canonical** — geometric helpers (distance, etc.) | Pure Python |
 | `src/mechatree/plotting/` | **Canonical** — 2D / 3D matplotlib renderers | Pure Python |
-| `examples/` | Active | Recipe-style scripts for users |
+| `examples/` | Active | Recipe-style scripts + commented YAMLs for users |
+| `scripts/` | Active | Off-recipe tooling (e.g. `strategies_single_tree.py` — verifies an evolved genome against the 2017 paper and writes a champion JSON) |
+| `data/` | Active | Small reference datasets shared by scripts + tests + examples (e.g. `S3_champions.json`, the per-species champion weights extracted from the Fortran tournament dump) |
 | `tests/` | Active | Add tests here |
 | `benchmarks/` | Active | Micro-benchmarks + `baseline.md` |
 | `docs/` | Active | Sphinx sources |
@@ -96,14 +98,14 @@ The user prefers staged steps.
 - **Step 10 — Light interception module.** `src/mechatree/light/` ports `light_interception` / `light_on_trees`; pure Python operating on a `Leaves` collection + `Sun` model. Decoupled from `PyTree`.
 - **Step 11 — Single-tree simulator.** `mechatree.simulate.grow_tree(config)` runs the `{light → stresses → growth → pruning → seeds/leaves → ordering}` loop. Example in `examples/single_tree.py`.
 - **Step 12 — Forest container.** `mechatree.forest.Forest` owns N trees with spatial layout, birth/death lifecycle, cross-tree light competition through the Step-10 module on the concatenated leaf list.
+- **Step 14 — Genome constants in YAML.** Scalars `safety`, `p_seeds`, `p_leaves`, `phototropism` live under a `genome:` block in YAML, populated through `GenomeConfig` (`src/mechatree/config.py`). Default `safety = 3.0` per the Fortran neural-net finding. `grow_tree` / `Forest` build `ConstantSafety` / `ConstantAllocation` from those values when no explicit model is passed.
+- **Step 16 — `NeuralSafety` / `NeuralAllocation`.** The Fortran 3-layer tanh networks (`mod_tree.f90:735 neural_branch`, `:771 neural_reserve`) are ported as header-only C++ classes in [src/mechatree/_core/genome.h](src/mechatree/_core/genome.h), wrapped at the Cython boundary as `PyNeuralSafety` / `PyNeuralAllocation`, and re-exported from `mechatree.genome`. Champion weight vectors are loaded with `mechatree.genome.load_champion(path, species_id)` from a JSON file written by [scripts/strategies_single_tree.py](scripts/strategies_single_tree.py); the reference dataset is [data/S3_champions.json](data/S3_champions.json). YAML configs can select a neural genome via `genome.neural_from: {path, species_id}` (path resolved relative to the YAML file). The C++ port is verified against the Python reference to `atol=1e-12` at every grid point.
 
 ### Up next
 
-- **Step 7 — First PyPI release.** Tag `v0.1.0`; release the current "tree architecture + simulator" library. CHANGELOG should note scope: ships `PyTree` topology + geometry + plotting + mechanics + light + single-tree + forest. Evolution and the neural-net genome are deferred to later releases.
-- **Step 13 — Forester-facing examples & tutorials.** Jupyter notebooks: "Grow one tree from a YAML config", "Build a forest and watch it self-prune under wind", "Plug in your own growth law". Ship a commented example YAML. Update `docs/userguide.rst`.
-- **Step 14 — Genome constants in YAML.** Expose `safety`, `p_seeds`, `p_leaves`, `phototropism` as scalar fields under a `genome:` block in YAML, populated through a new `GenomeConfig` dataclass. Default `safety = 3.0` per the Fortran neural-net finding. `grow_tree` / `Forest` build `ConstantSafety` / `ConstantAllocation` from those values when no explicit model is passed. (Done as the work that produced this paragraph.)
-- **Step 15 — Callable genome from YAML via SymPy.** Allow `genome.safety` (and allocation fields) to be either a scalar *or* a string expression like `"3 * tanh(max_stress)"`. Parse with `sympy.sympify`, compile with `sympy.lambdify`, wrap as `SymPySafety` / `SymPyAllocation` subclasses of `SafetyModel` / `AllocationModel`. Inputs: the same `(nb_leaves, max_stress)` / `(nb_leaves, vol_relative)` pairs the Fortran NNs took. Validate against an allow-list of free symbols. Useful as a research tool and a stepping-stone toward the NN port.
-- **Step 16 — `NeuralSafety` / `NeuralAllocation`.** Port the Fortran 3-layer tanh networks (`mod_tree.f90:735 neural_branch`, `:771 neural_reserve`). Self-contained; drops in as another `SafetyModel` / `AllocationModel` subclass per the comment in `src/mechatree/_core/genome.h`.
+- **Step 7 — First PyPI release.** Tag `v0.1.0`; release the current "tree architecture + simulator + neural genome" library. CHANGELOG should note scope: ships `PyTree` topology + geometry + plotting + mechanics + light + single-tree + forest + `Constant*` / `Neural*` genome models. Evolution is deferred to a separate package.
+- **Step 13 — Forester-facing examples & tutorials.** Jupyter notebooks: "Grow one tree from a YAML config", "Build a forest and watch it self-prune under wind", "Plug in your own growth law", "Grow a tree with one of the 2017 paper's evolved species". Ship a commented example YAML. Update `docs/userguide.rst`.
+- **Step 15 — Callable genome from YAML via SymPy.** Allow `genome.safety` (and allocation fields) to be either a scalar *or* a string expression like `"3 * tanh(max_stress)"`. Parse with `sympy.sympify`, compile with `sympy.lambdify`, wrap as `SymPySafety` / `SymPyAllocation` subclasses of `SafetyModel` / `AllocationModel`. Inputs: the same `(nb_leaves, max_stress)` / `(nb_leaves, vol_relative)` pairs the Fortran NNs took. Validate against an allow-list of free symbols. Useful as a research tool sitting between `Constant*` and `Neural*`.
 
 ### Out of scope (do not re-litigate unless explicitly asked)
 

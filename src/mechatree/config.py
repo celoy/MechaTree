@@ -90,19 +90,26 @@ class LightConfig:
 
 @dataclass(frozen=True)
 class GenomeConfig:
-    """Constant scalars consumed by ConstantSafety / ConstantAllocation.
+    """Genome inputs for the simulator.
 
-    Reproduce the values the Fortran ``neural_branch`` / ``neural_reserve``
-    networks evolved to in Eloy et al. (Nat Commun 2017). ``safety`` is the
-    multiplier of the branch volume that would just barely survive nominal
-    wind — ``safety = 3`` puts branches at ~(1/3)^(3/2) ≈ 0.19 of breaking
-    stress, the value the evolved network settled on.
+    The scalar fields (``safety``, ``p_seeds``, ``p_leaves``, ``phototropism``)
+    populate :class:`ConstantSafety` / :class:`ConstantAllocation` when no
+    neural genome is supplied. Their defaults reproduce the values the Fortran
+    ``neural_branch`` / ``neural_reserve`` networks evolved to in Eloy et al.
+    (Nat Commun 2017): ``safety = 3`` puts branches at ~(1/3)^(3/2) ≈ 0.19 of
+    breaking stress, the value the evolved network settled on.
+
+    ``neural_from``, when set, points at a champion JSON written by
+    ``scripts/strategies_single_tree.py`` and selects which species to load.
+    When it is present, :class:`NeuralSafety` / :class:`NeuralAllocation` are
+    used instead of the scalar fields.
     """
 
     safety: float = 3.0  # was neural_branch output (Safety)
     p_seeds: float = 0.1  # was neural_reserve output [0]
     p_leaves: float = 0.5  # was neural_reserve output [1]
     phototropism: float = 0.5  # was neural_reserve output [2]
+    neural_from: dict[str, Any] | None = None  # {"path": ..., "species_id": 0}
 
     def __post_init__(self) -> None:
         if self.safety <= 0.0:
@@ -120,6 +127,24 @@ class GenomeConfig:
             raise ValueError(
                 f"GenomeConfig.phototropism must be in [0, 1], got {self.phototropism}"
             )
+        if self.neural_from is not None:
+            if not isinstance(self.neural_from, dict):
+                raise ValueError(
+                    "GenomeConfig.neural_from must be a dict like {'path': ..., 'species_id': 0}"
+                )
+            if "path" not in self.neural_from:
+                raise ValueError("GenomeConfig.neural_from requires a 'path' key")
+            if not isinstance(self.neural_from["path"], str):
+                raise ValueError(
+                    f"GenomeConfig.neural_from['path'] must be a string, "
+                    f"got {type(self.neural_from['path']).__name__}"
+                )
+            species_id = self.neural_from.get("species_id", 0)
+            if not isinstance(species_id, int) or isinstance(species_id, bool):
+                raise ValueError(
+                    f"GenomeConfig.neural_from['species_id'] must be an int, "
+                    f"got {type(species_id).__name__}"
+                )
 
 
 @dataclass(frozen=True)
@@ -169,16 +194,23 @@ class Config:
     forest: ForestConfig = field(default_factory=ForestConfig)
     genome: GenomeConfig = field(default_factory=GenomeConfig)
     n_generations: int = 100  # was Ngeneration / Nsteps
+    # Directory used to resolve relative paths inside the config (e.g.
+    # ``genome.neural_from.path``). Populated by ``from_yaml`` with the YAML
+    # file's parent dir; ``None`` for programmatically-built configs.
+    # ``compare=False, hash=False`` keeps it out of value equality so two
+    # configs from different paths but identical content still compare equal.
+    base_dir: Path | None = field(default=None, compare=False, hash=False)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Config:
         """Load and validate a config from a YAML file."""
+        path = Path(path)
         with open(path) as f:
             data: dict[str, Any] = yaml.safe_load(f) or {}
-        return cls.from_dict(data)
+        return cls.from_dict(data, base_dir=path.parent)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Config:
+    def from_dict(cls, data: dict[str, Any], *, base_dir: Path | None = None) -> Config:
         tree_data = data.get("tree", {}) or {}
         light_data = data.get("light", {}) or {}
         forest_data = data.get("forest", {}) or {}
@@ -206,6 +238,7 @@ class Config:
             forest=ForestConfig(**forest_known),
             genome=GenomeConfig(**genome_known),
             n_generations=int(n_gen),
+            base_dir=base_dir,
         )
 
 

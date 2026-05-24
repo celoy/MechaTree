@@ -32,6 +32,14 @@ cdef extern from "genome.h" nogil:
         double pLeaves()
         double phototropism()
 
+    cdef cppclass NeuralSafety(SafetyModel):
+        NeuralSafety(const double* weights) except +
+        const double* weights()
+
+    cdef cppclass NeuralAllocation(AllocationModel):
+        NeuralAllocation(const double* weights) except +
+        const double* weights()
+
 cdef extern from "branch.h" nogil:
     cdef cppclass Branch:
         # typed mechanics fields (Step 9) — getters/setters declared inline

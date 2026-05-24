@@ -10,6 +10,13 @@
 #ifndef GENOME_H_
 #define GENOME_H_
 
+#include <algorithm>
+#include <cmath>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 class SafetyModel {
 public:
     virtual ~SafetyModel() = default;
@@ -53,6 +60,100 @@ public:
     double phototropism() const { return phototropism_; }
 private:
     double p_seeds_, p_leaves_, phototropism_;
+};
+
+// 3-layer tanh networks ported from legacy_fortran/mod_tree.f90:735 (neural_branch)
+// and :771 (neural_reserve). Each gene g in [0,1] is decoded into a network
+// weight via tan((g - 0.5) * π * 0.99). The 3×2 input matrix M1 has two entries
+// pinned to zero by evolutionary constraint (M1[0,0] and M1[2,1]).
+// Inputs to the net are (0.01 * nb_leaves, max_stress) for safety and
+// (0.01 * nb_leaves, vol_relative) for allocation — the 0.01 scaling lives
+// inside compute() so growth.cpp keeps passing raw nb_leaves.
+
+class NeuralSafety final : public SafetyModel {
+public:
+    static constexpr int N_WEIGHTS = 10;
+    explicit NeuralSafety(const double* weights) {
+        for (int i = 0; i < N_WEIGHTS; ++i) {
+            weights_[i] = weights[i];
+            toto_[i] = std::tan((weights[i] - 0.5) * M_PI * 0.99);
+        }
+        toto_[0] = 0.0;  // M1(0,0) constraint
+        toto_[5] = 0.0;  // M1(2,1) constraint  (toto[5] = M1 col-major last entry of col 1)
+    }
+    double compute(int nb_leaves, double max_stress) const override {
+        const double x0 = 0.01 * static_cast<double>(nb_leaves);
+        const double x1 = max_stress;
+        double Z[3];
+        for (int i = 0; i < 3; ++i) {
+            Z[i] = toto_[i] * x0 + toto_[3 + i] * x1;
+        }
+        double Zp[4];
+        for (int i = 0; i < 3; ++i) {
+            Zp[i] = std::tanh(5.0 * Z[i]) / 3.0;
+        }
+        Zp[3] = 1.0 / 3.0;
+        double F = 0.0;
+        for (int j = 0; j < 4; ++j) {
+            F += toto_[6 + j] * Zp[j];
+        }
+        return std::max(0.0, F + 1.0);
+    }
+    const double* weights() const { return weights_; }
+private:
+    double weights_[N_WEIGHTS];
+    double toto_[N_WEIGHTS];
+};
+
+class NeuralAllocation final : public AllocationModel {
+public:
+    static constexpr int N_WEIGHTS = 18;
+    explicit NeuralAllocation(const double* weights) {
+        for (int i = 0; i < N_WEIGHTS; ++i) {
+            weights_[i] = weights[i];
+            toto_[i] = std::tan((weights[i] - 0.5) * M_PI * 0.99);
+        }
+        toto_[0] = 0.0;  // M1(0,0)
+        toto_[5] = 0.0;  // M1(2,1)
+    }
+    void compute(int nb_leaves, double vol_relative,
+                 double& p_seeds, double& p_leaves,
+                 double& phototropism) const override {
+        const double x0 = 0.01 * static_cast<double>(nb_leaves);
+        const double x1 = vol_relative;
+        double Z[3];
+        for (int i = 0; i < 3; ++i) {
+            Z[i] = toto_[i] * x0 + toto_[3 + i] * x1;
+        }
+        double Zp[4];
+        for (int i = 0; i < 3; ++i) {
+            Zp[i] = std::tanh(5.0 * Z[i]) / 3.0;
+        }
+        Zp[3] = 1.0 / 3.0;
+        // M2 is (3 outputs, 4 hidden) column-major: M2[i,j] = toto_[6 + j*3 + i].
+        // F[0] -> p_leaves, F[1] -> p_seeds, F[2] -> phototropism (matlab order).
+        double F[3] = {0.0, 0.0, 0.0};
+        for (int j = 0; j < 4; ++j) {
+            for (int i = 0; i < 3; ++i) {
+                F[i] += toto_[6 + j * 3 + i] * Zp[j];
+            }
+        }
+        double pl = std::min(std::max(0.0, F[0] + 2.0), 4.0) / 4.0;
+        double ps = std::min(std::max(0.0, F[1] + 2.0), 4.0) / 4.0;
+        const double ph = std::min(std::max(0.0, F[2] + 2.0), 4.0) / 4.0;
+        const double s = ps + pl;
+        if (s > 1.0) {
+            pl /= s;
+            ps /= s;
+        }
+        p_seeds = ps;
+        p_leaves = pl;
+        phototropism = ph;
+    }
+    const double* weights() const { return weights_; }
+private:
+    double weights_[N_WEIGHTS];
+    double toto_[N_WEIGHTS];
 };
 
 #endif

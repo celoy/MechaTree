@@ -19,6 +19,8 @@ from mechatree._core.cytree cimport (
     Branch,
     ConstantAllocation,
     ConstantSafety,
+    NeuralAllocation,
+    NeuralSafety,
     SafetyModel,
     Tree,
     array3d,
@@ -519,3 +521,63 @@ cdef class PyConstantAllocation(PyAllocationModel):
     @property
     def phototropism(self):
         return (<ConstantAllocation*>self._model).phototropism()
+
+
+cdef class PyNeuralSafety(PySafetyModel):
+    """3-layer tanh `neural_branch` network (10 weights, gene-domain [0, 1]).
+
+    Mirrors ``legacy_fortran/mod_tree.f90:735``. Each gene is decoded with
+    ``tan((g - 0.5) * pi * 0.99)`` then folded into M1 (3x2) and M2 (1x4)
+    Fortran-order matrices with two entries pinned to zero by evolutionary
+    constraint. The 0.01 scaling on ``nb_leaves`` lives inside the C++ forward
+    pass; growth.cpp keeps passing raw integer leaf counts.
+    """
+
+    def __cinit__(self, weights):
+        cdef double[10] buf
+        cdef int i
+        if len(weights) != 10:
+            raise ValueError(
+                f"PyNeuralSafety expects 10 weights, got {len(weights)}")
+        for i in range(10):
+            buf[i] = float(weights[i])
+        self._model = new NeuralSafety(buf)
+
+    @property
+    def weights(self):
+        import numpy as np
+        cdef const double* w = (<NeuralSafety*>self._model).weights()
+        cdef int i
+        out = np.empty(10, dtype=np.float64)
+        for i in range(10):
+            out[i] = w[i]
+        return out
+
+
+cdef class PyNeuralAllocation(PyAllocationModel):
+    """3-layer tanh `neural_reserve` network (18 weights, gene-domain [0, 1]).
+
+    Mirrors ``legacy_fortran/mod_tree.f90:771``. 3-output net feeding back
+    ``(p_seeds, p_leaves, phototropism)`` with the per-output clip and the
+    ``p_seeds + p_leaves > 1`` renormalisation from the Fortran reference.
+    """
+
+    def __cinit__(self, weights):
+        cdef double[18] buf
+        cdef int i
+        if len(weights) != 18:
+            raise ValueError(
+                f"PyNeuralAllocation expects 18 weights, got {len(weights)}")
+        for i in range(18):
+            buf[i] = float(weights[i])
+        self._model = new NeuralAllocation(buf)
+
+    @property
+    def weights(self):
+        import numpy as np
+        cdef const double* w = (<NeuralAllocation*>self._model).weights()
+        cdef int i
+        out = np.empty(18, dtype=np.float64)
+        for i in range(18):
+            out[i] = w[i]
+        return out

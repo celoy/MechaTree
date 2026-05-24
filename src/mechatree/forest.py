@@ -19,7 +19,7 @@ import numpy as np
 
 from mechatree._core import PyTree
 from mechatree.config import Config, ForestConfig, TreeConfig
-from mechatree.genome import AllocationModel, ConstantAllocation, ConstantSafety, SafetyModel
+from mechatree.genome import AllocationModel, SafetyModel, models_from_config
 from mechatree.growth import primary_growth, requested_growth, secondary_growth
 from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
 from mechatree.mechanics import calculate_stresses
@@ -90,15 +90,14 @@ class Forest:
 
     def __post_init__(self) -> None:
         self.rng = np.random.default_rng(self.seed)
-        gc = self.config.genome
-        if self.safety is None:
-            self.safety = ConstantSafety(gc.safety)
-        if self.allocation is None:
-            self.allocation = ConstantAllocation(
-                p_seeds=gc.p_seeds,
-                p_leaves=gc.p_leaves,
-                phototropism=gc.phototropism,
+        if self.safety is None or self.allocation is None:
+            default_safety, default_allocation = models_from_config(
+                self.config.genome, base_dir=self.config.base_dir
             )
+            if self.safety is None:
+                self.safety = default_safety
+            if self.allocation is None:
+                self.allocation = default_allocation
         if self.wind_fn is None:
             self.wind_fn = default_wind_fn
         if self.sun is None:

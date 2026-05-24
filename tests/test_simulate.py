@@ -89,6 +89,65 @@ def test_grow_tree_accepts_tree_config_with_explicit_n_generations():
     assert tree.get_number_of_branches() >= 1
 
 
+CHAMPION_JSON = (
+    pytest.importorskip("pathlib").Path(__file__).resolve().parent.parent
+    / "data"
+    / "S3_champions.json"
+)
+
+
+@pytest.mark.skipif(
+    not CHAMPION_JSON.exists(),
+    reason=f"champion JSON not present at {CHAMPION_JSON}",
+)
+def test_grow_tree_with_neural_genome_from_yaml(tmp_path):
+    """grow_tree on a YAML that references the champion JSON runs end-to-end
+    and produces a viable tree."""
+    yml = tmp_path / "cfg.yaml"
+    yml.write_text(
+        f"n_generations: 8\ngenome:\n  neural_from:\n    path: {CHAMPION_JSON}\n    species_id: 0\n"
+    )
+    cfg = Config.from_yaml(yml)
+    assert cfg.genome.neural_from is not None
+    tree = grow_tree(cfg, seed=0)
+    assert tree.get_number_of_branches() >= 1
+
+
+@pytest.mark.skipif(
+    not CHAMPION_JSON.exists(),
+    reason=f"champion JSON not present at {CHAMPION_JSON}",
+)
+def test_grow_tree_with_neural_genome_passed_directly():
+    """Passing NeuralSafety / NeuralAllocation as kwargs bypasses the config
+    path entirely — should still run cleanly."""
+    from mechatree.genome import load_champion
+
+    safety, allocation, _ = load_champion(CHAMPION_JSON, species_id=0)
+    tree = grow_tree(Config(), n_generations=8, seed=0, safety=safety, allocation=allocation)
+    assert tree.get_number_of_branches() >= 1
+
+
+@pytest.mark.skipif(
+    not CHAMPION_JSON.exists(),
+    reason=f"champion JSON not present at {CHAMPION_JSON}",
+)
+def test_grow_tree_neural_vs_constant_diverges():
+    """The two species' champions should produce visibly different trees from
+    the same seed — sanity check that the genome actually drives growth."""
+    from mechatree.genome import load_champion
+
+    s0, a0, _ = load_champion(CHAMPION_JSON, species_id=0)
+    s1, a1, _ = load_champion(CHAMPION_JSON, species_id=1)
+    t0 = grow_tree(Config(), n_generations=15, seed=1, safety=s0, allocation=a0)
+    t1 = grow_tree(Config(), n_generations=15, seed=1, safety=s1, allocation=a1)
+    # Different genomes from the same seed must produce different topologies
+    # (branch counts) — otherwise the genome isn't being honoured.
+    assert (
+        t0.get_number_of_branches() != t1.get_number_of_branches()
+        or t0.get_total_leaves() != t1.get_total_leaves()
+    )
+
+
 def test_grow_tree_custom_wind_fn():
     """User-supplied wind function is respected — verify by injecting a
     no-wind function and observing zero pruning (more leaves survive)."""

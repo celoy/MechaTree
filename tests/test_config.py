@@ -139,3 +139,48 @@ def test_config_yaml_example_carries_genome_block():
     assert cfg.genome.p_seeds == pytest.approx(0.1)
     assert cfg.genome.p_leaves == pytest.approx(0.5)
     assert cfg.genome.phototropism == pytest.approx(0.5)
+
+
+def test_genomeconfig_neural_from_default_is_none():
+    assert GenomeConfig().neural_from is None
+
+
+def test_genomeconfig_neural_from_accepts_well_formed_dict():
+    gc = GenomeConfig(neural_from={"path": "champions.json", "species_id": 1})
+    assert gc.neural_from == {"path": "champions.json", "species_id": 1}
+
+
+def test_genomeconfig_neural_from_validation():
+    with pytest.raises(ValueError, match="must be a dict"):
+        GenomeConfig(neural_from="not a dict")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="requires a 'path' key"):
+        GenomeConfig(neural_from={"species_id": 0})
+    with pytest.raises(ValueError, match="must be a string"):
+        GenomeConfig(neural_from={"path": 42})
+    with pytest.raises(ValueError, match="species_id.*must be an int"):
+        GenomeConfig(neural_from={"path": "x.json", "species_id": "0"})
+
+
+def test_config_from_dict_reads_neural_block():
+    data = {"genome": {"neural_from": {"path": "../data/S3_champions.json", "species_id": 1}}}
+    cfg = Config.from_dict(data, base_dir=Path("/tmp/somewhere"))
+    assert cfg.genome.neural_from == {
+        "path": "../data/S3_champions.json",
+        "species_id": 1,
+    }
+    assert cfg.base_dir == Path("/tmp/somewhere")
+
+
+def test_config_base_dir_not_in_equality():
+    """base_dir is metadata about provenance, not part of the config's value."""
+    a = Config.from_dict({}, base_dir=Path("/a"))
+    b = Config.from_dict({}, base_dir=Path("/b"))
+    assert a == b
+    assert a.base_dir != b.base_dir
+
+
+def test_config_from_yaml_stashes_base_dir(tmp_path):
+    yml = tmp_path / "cfg.yaml"
+    yml.write_text("genome:\n  safety: 2.5\n")
+    cfg = Config.from_yaml(yml)
+    assert cfg.base_dir == tmp_path

@@ -44,6 +44,14 @@ genome:
   p_seeds: 0.1               # was p_seeds (neural_reserve output [0])
   p_leaves: 0.5              # was p_leaves (neural_reserve output [1])
   phototropism: 0.5          # was phototropism (neural_reserve output [2])
+  # Uncomment to use one of the paper's evolved species (NeuralSafety /
+  # NeuralAllocation) instead of the constants above. `path` is resolved
+  # relative to this YAML file. `species_id` picks which champion from the
+  # JSON: 0 = "interior" cluster, 1 = "periphery" cluster (see the species
+  # scatter in scripts/strategies_single_tree.py).
+  # neural_from:
+  #   path: ../data/S3_champions.json
+  #   species_id: 0
 
 # `n_generations` can sit here at top level or under `forest:`; the
 # top-level one wins.

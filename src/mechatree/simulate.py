@@ -26,7 +26,7 @@ import numpy as np
 
 from mechatree._core import PyTree
 from mechatree.config import Config, TreeConfig
-from mechatree.genome import AllocationModel, ConstantAllocation, ConstantSafety, SafetyModel
+from mechatree.genome import AllocationModel, SafetyModel, models_from_config
 from mechatree.growth import primary_growth, requested_growth, secondary_growth
 from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
 from mechatree.mechanics import calculate_stresses
@@ -145,9 +145,11 @@ def grow_tree(
         skips all callback overhead.
     """
     genome_cfg = None
+    base_dir = None
     if isinstance(config, Config):
         tree_cfg = config.tree
         genome_cfg = config.genome
+        base_dir = config.base_dir
         if n_generations is None:
             n_generations = config.n_generations
         if sun is None:
@@ -164,17 +166,12 @@ def grow_tree(
 
     if sun is None:
         sun = Sun()
-    if safety is None:
-        safety = ConstantSafety(genome_cfg.safety if genome_cfg is not None else 3.0)
-    if allocation is None:
-        if genome_cfg is not None:
-            allocation = ConstantAllocation(
-                p_seeds=genome_cfg.p_seeds,
-                p_leaves=genome_cfg.p_leaves,
-                phototropism=genome_cfg.phototropism,
-            )
-        else:
-            allocation = ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5)
+    if safety is None or allocation is None:
+        default_safety, default_allocation = models_from_config(genome_cfg, base_dir=base_dir)
+        if safety is None:
+            safety = default_safety
+        if allocation is None:
+            allocation = default_allocation
     if wind_fn is None:
         wind_fn = default_wind_fn
 
