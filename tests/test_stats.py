@@ -13,9 +13,11 @@ from mechatree.stats import (
     HortonSummary,
     distance_to_leaves,
     horton_ratios,
+    horton_strahler_counts,
     horton_summary,
     leonardo_ratios,
     mean_distance_to_leaves,
+    mean_stream_length,
     strahler_summary,
     tokunaga_matrix,
 )
@@ -83,6 +85,61 @@ def test_strahler_summary_grown_tree():
     assert s.n_branches[0] >= s.n_branches[-1]
     # All counts positive.
     assert (s.n_branches > 0).all()
+
+
+def test_horton_strahler_counts_perfect_binary_tree():
+    """A perfect binary tree of depth d has the classical doubling Horton-
+    Strahler stream counts: ``N(w) = 2^(d - w + 1)`` for w = 1..d, plus the
+    trunk ``N(d+1) = 1``. ``N(1)`` must equal the leaf count."""
+    t = _balanced_binary_tree(3)
+    n_w = horton_strahler_counts(t)
+    # depth-3 perfect binary tree: 8 leaves, 4 order-2, 2 order-3, 1 order-4 trunk.
+    assert n_w.tolist() == [8, 4, 2, 1]
+    assert int(n_w[0]) == t.get_total_leaves()
+
+
+def test_horton_strahler_counts_n1_equals_leaves_on_grown_tree():
+    """Even on a real simulated tree with pruning artifacts, ``N(1)`` must
+    equal the leaf count exactly — that is the paper's convention
+    (mod_tree.f90:1057)."""
+    tree = grow_tree(Config(), n_generations=80, seed=7)
+    n_w = horton_strahler_counts(tree)
+    assert int(n_w[0]) == tree.get_total_leaves()
+    # Counts are monotone-decreasing (roughly) on a self-similar tree; at
+    # minimum the top rank is the singleton trunk.
+    assert int(n_w[-1]) == 1
+
+
+def test_mean_stream_length_perfect_binary_tree():
+    """In a perfect binary tree every stream is a single segment, so the
+    mean stream length is 1 at every Strahler rank."""
+    t = _balanced_binary_tree(3)
+    L_w = mean_stream_length(t)
+    assert L_w.tolist() == [1.0, 1.0, 1.0, 1.0]
+
+
+def test_mean_stream_length_matches_seg_over_stream_definition():
+    """``mean_stream_length(tree)[w] == strahler_n_branches[w] / n_w[w]``
+    on a grown tree — this is the Fortran ``length_Strahler`` formula
+    (mod_tree.f90:1091-1097)."""
+    tree = grow_tree(Config(), n_generations=50, seed=11)
+    seg_counts = strahler_summary(tree).n_branches.astype(float)
+    n_w = horton_strahler_counts(tree).astype(float)
+    expected = np.divide(seg_counts, n_w, out=np.zeros_like(seg_counts), where=n_w > 0)
+    L_w = mean_stream_length(tree)
+    np.testing.assert_allclose(L_w, expected)
+
+
+def test_horton_strahler_counts_empty_tree_returns_zero_length_array():
+    """``PyTree({})`` has one trunk segment (Strahler 1); the result has
+    length 1 entry."""
+    t = PyTree({})
+    t.set_length(0, 1.0)
+    t.set_diameter(0, 0.1)
+    t.set_unit_t(0, (0.0, 0.0, 1.0))
+    t.set_unit_b(0, (1.0, 0.0, 0.0))
+    n_w = horton_strahler_counts(t)
+    assert n_w.tolist() == [1]
 
 
 def test_leonardo_ratios_uniform_diameter_tree():
@@ -258,7 +315,7 @@ def test_horton_ratios_on_champion_tree_near_paper_values():
         pytest.skip("S3_champions.json or forest.yaml missing")
 
     cfg = load_config(forest_yaml)
-    safety, allocation, _ = load_champion(champions, species_id=0)
+    safety, allocation, _, _ = load_champion(champions, species_id=0)
     tree = grow_tree(cfg, n_generations=150, seed=42, safety=safety, allocation=allocation)
     h_summary = horton_summary(tree)
     if h_summary.max_order < 4:

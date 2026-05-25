@@ -14,7 +14,7 @@ import math
 
 import numpy as np
 
-from mechatree.plotting._palette import MAX_STRAHLER, strahler_css
+from mechatree.plotting._palette import MAX_STRAHLER
 
 
 def plot_tree_3d(
@@ -25,7 +25,7 @@ def plot_tree_3d(
     width_max: float = 6.0,
     show_leaves: bool = False,
     leaf_size_scale: float = 8.0,
-    leaf_color: str = "green",
+    leaf_color: str | None = None,
     sun=None,
 ):
     """Render a 3D view of a mechanics tree as a plotly figure.
@@ -52,7 +52,8 @@ def plot_tree_3d(
     leaf_size_scale
         Marker size at peak light when ``show_leaves=True``.
     leaf_color
-        Marker colour for leaves (any CSS / plotly colour spec).
+        Marker colour for leaves (any CSS / plotly colour spec). Defaults to
+        ``figstyle.COLORS["green"]`` when unset.
     sun
         Optional :class:`mechatree.light.Sun`. Used only when
         ``show_leaves=True``; defaults to ``Sun()``.
@@ -63,8 +64,12 @@ def plot_tree_3d(
     """
     import plotly.graph_objects as go
 
+    from mechatree.plotting import figstyle
+
+    leaf_color = leaf_color if leaf_color is not None else figstyle.COLORS["green"]
+
     n = tree.get_number_of_branches()
-    fig = go.Figure()
+    fig = figstyle.figure_3d(size="full", show_axes=False)
     if n == 0:
         return fig
 
@@ -106,7 +111,7 @@ def plot_tree_3d(
                 y=ys,
                 z=zs,
                 mode="lines",
-                line=dict(color=strahler_css(int(order)), width=width),  # noqa: C408
+                line=dict(color=figstyle.strahler_color(int(order)), width=width),  # noqa: C408
                 name=f"Strahler {int(order)}",
                 hoverinfo="skip",
                 showlegend=False,
@@ -166,8 +171,10 @@ def plot_forest_topdown(forest, *, biomass_scale: float = 1.0):
     """
     import plotly.graph_objects as go
 
+    from mechatree.plotting import figstyle
+
     size = forest.config.forest.size
-    fig = go.Figure()
+    fig = figstyle.figure(size="half", aspect=1.0)
 
     # Boundary circle.
     theta = np.linspace(0, 2 * math.pi, 101)
@@ -176,7 +183,7 @@ def plot_forest_topdown(forest, *, biomass_scale: float = 1.0):
             x=size * np.cos(theta),
             y=size * np.sin(theta),
             mode="lines",
-            line=dict(color="black", width=1, dash="dash"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["black"], width=1, dash="dash"),  # noqa: C408
             name="boundary",
             hoverinfo="skip",
             showlegend=False,
@@ -204,7 +211,7 @@ def plot_forest_topdown(forest, *, biomass_scale: float = 1.0):
                 mode="markers",
                 marker=dict(  # noqa: C408
                     size=[8.0 * s for s in sizes],
-                    color="forestgreen",
+                    color=figstyle.COLORS["green"],
                     opacity=0.5,
                 ),
                 name="trees",
@@ -222,10 +229,6 @@ def plot_forest_topdown(forest, *, biomass_scale: float = 1.0):
         ),
         yaxis=dict(range=[-1.1 * size, 1.1 * size], title="y"),  # noqa: C408
         margin=dict(l=40, r=20, t=20, b=40),  # noqa: C408
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        width=600,
-        height=600,
     )
     return fig
 
@@ -234,26 +237,23 @@ def plot_forest_topdown(forest, *, biomass_scale: float = 1.0):
 
 
 def _apply_iso_layout(fig, verts: np.ndarray) -> None:
-    """Set isometric/orthographic projection with data-true aspect ratio."""
+    """Set isometric/orthographic projection with data-true aspect ratio.
+
+    Refines the orthographic scene that ``figstyle.figure_3d`` already set up;
+    only the per-axis aspect ratio depends on the actual tree extents.
+    """
     extents = verts.max(axis=0) - verts.min(axis=0)
     extents = np.where(extents > 0, extents, 1.0)
     aspect = extents / extents.max()
-    fig.update_layout(
-        scene=dict(  # noqa: C408
-            xaxis=dict(visible=False),  # noqa: C408
-            yaxis=dict(visible=False),  # noqa: C408
-            zaxis=dict(visible=False),  # noqa: C408
-            aspectmode="manual",
-            aspectratio=dict(x=float(aspect[0]), y=float(aspect[1]), z=float(aspect[2])),  # noqa: C408
-            camera=dict(  # noqa: C408
-                projection=dict(type="orthographic"),  # noqa: C408
-                eye=dict(x=0.9, y=0.9, z=0.45),  # noqa: C408
-                center=dict(x=0.0, y=0.0, z=0.0),  # noqa: C408
-                up=dict(x=0.0, y=0.0, z=1.0),  # noqa: C408
-            ),
+    fig.update_scenes(
+        aspectmode="manual",
+        aspectratio=dict(x=float(aspect[0]), y=float(aspect[1]), z=float(aspect[2])),  # noqa: C408
+        camera=dict(  # noqa: C408
+            projection=dict(type="orthographic"),  # noqa: C408
+            eye=dict(x=0.9, y=0.9, z=0.45),  # noqa: C408
+            center=dict(x=0.0, y=0.0, z=0.0),  # noqa: C408
+            up=dict(x=0.0, y=0.0, z=1.0),  # noqa: C408
         ),
-        margin=dict(l=0, r=0, t=0, b=0),  # noqa: C408
-        paper_bgcolor="white",
     )
 
 

@@ -71,9 +71,13 @@ Paper = "https://doi.org/10.1038/s41467-017-00995-6"
 
 # DendroFlow isn't on PyPI yet — point `uv` at the local sibling checkout
 # so the `dendroflow` optional extra can resolve during development.
+# Gated on `extra = "dendroflow"` so `uv pip install -e .[dev]` on CI does
+# NOT try to resolve `../DendroFlow` (which doesn't exist on the runner).
 # Drop this block once DendroFlow ships to PyPI.
 [tool.uv.sources]
-dendroflow = { path = "../DendroFlow", editable = true }
+dendroflow = [
+    { path = "../DendroFlow", editable = true, extra = "dendroflow" },
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

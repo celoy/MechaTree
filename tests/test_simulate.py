@@ -122,7 +122,7 @@ def test_grow_tree_with_neural_genome_passed_directly():
     path entirely — should still run cleanly."""
     from mechatree.genome import load_champion
 
-    safety, allocation, _ = load_champion(CHAMPION_JSON, species_id=0)
+    safety, allocation, _, _ = load_champion(CHAMPION_JSON, species_id=0)
     tree = grow_tree(Config(), n_generations=8, seed=0, safety=safety, allocation=allocation)
     assert tree.get_number_of_branches() >= 1
 
@@ -136,8 +136,8 @@ def test_grow_tree_neural_vs_constant_diverges():
     the same seed — sanity check that the genome actually drives growth."""
     from mechatree.genome import load_champion
 
-    s0, a0, _ = load_champion(CHAMPION_JSON, species_id=0)
-    s1, a1, _ = load_champion(CHAMPION_JSON, species_id=1)
+    s0, a0, _, _ = load_champion(CHAMPION_JSON, species_id=0)
+    s1, a1, _, _ = load_champion(CHAMPION_JSON, species_id=1)
     t0 = grow_tree(Config(), n_generations=15, seed=1, safety=s0, allocation=a0)
     t1 = grow_tree(Config(), n_generations=15, seed=1, safety=s1, allocation=a1)
     # Different genomes from the same seed must produce different topologies

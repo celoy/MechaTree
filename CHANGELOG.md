@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Champion genome loader now returns coding angles too (**breaking**)
+
+- [`mechatree.genome.load_champion`](src/mechatree/genome.py) now returns a 4-tuple `(safety, allocation, angles, non_coding)` instead of the previous 3-tuple `(safety, allocation, meta)`. The third element `angles` is a dict `{theta1, theta2, gamma1, gamma2}` (radians) decoded from `full_row[6:9]` via the Fortran formula in `mod_tree.f90:108-111`. Previously these angle genes were silently discarded and the simulator fell back to the YAML's `tree.theta*` / `tree.gamma*` defaults, so champion trees grew with the wrong branching geometry. With the fix, the species-0 S3 champion at gen 400 reaches ~9 600 branches (was ~7 300), in line with the paper's ~10⁴.
+- The fourth element renamed `meta` → `non_coding` (biology metaphor: the bookkeeping fields `species_id` / `centroid_tag` / `champion_index` etc. are the non-coding part of the champion record; angles + NN weights are the coding part).
+- [`mechatree.genome.load_all_champions`](src/mechatree/genome.py) returns 4-tuples per species accordingly.
+- [`mechatree.genome.models_from_config`](src/mechatree/genome.py) now returns 3-tuple `(safety, allocation, angles)`. For non-Neural paths (`Constant*`, SymPy callbacks) `angles` is `None`; for `neural_from:` it carries the champion's decoded angles.
+- [`mechatree.simulate.grow_tree`](src/mechatree/simulate.py) and [`mechatree.forest.Forest`](src/mechatree/forest.py): when `models_from_config` returns non-None angles (YAML neural_from path), the simulator auto-applies them to `cfg.tree` before running, so champion runs use the champion's geometry by default. Explicit `safety=`/`allocation=` callers still need `replace(cfg.tree, **angles)` themselves.
+- [`mechatree.genome.champion_angles`](src/mechatree/genome.py): new lightweight helper that decodes the four angles without instantiating the NN models. Equivalent to `load_champion(path, species_id)[2]`.
+- [`examples/forest.yaml`](examples/forest.yaml): `light.leaf_transparency: 0.5` made explicit (was previously implicit via `LightConfig` default). Comment on the `tree.theta*` / `gamma*` block pointing at the champion-override pattern.
+- [`tests/test_genome_neural.py`](tests/test_genome_neural.py): `test_load_champion_returns_models_angles_and_non_coding` asserts the 4-tuple contract, the Fortran-formula sign convention (`theta1 > 0`, `theta2 < 0`, `gamma1 == gamma2`), and that `load_all_champions` yields a 4-tuple per species.
+- All callers updated: [`tests/test_simulate.py`](tests/test_simulate.py), [`tests/test_stats.py`](tests/test_stats.py), [`tests/test_sympy_genome.py`](tests/test_sympy_genome.py), [`examples/figstyle_compare.py`](examples/figstyle_compare.py), [`notebooks/03_neural_genome.ipynb`](notebooks/03_neural_genome.ipynb), [`notebooks/06_fractal_dimension.ipynb`](notebooks/06_fractal_dimension.ipynb).
+
+### Added — `horton_strahler_counts` (paper-faithful # branches per rank)
+
+- [`mechatree.stats.horton_strahler_counts`](src/mechatree/stats.py) — port of the Fortran ``NsegmentsS`` array writer in [`legacy_fortran/mod_tree.f90:1052-1070`](legacy_fortran/mod_tree.f90), the data behind the SI Fig. S8(b) "number of branches per Strahler order" trace. Implements the classical Horton-Strahler stream count: ``N(1) = number of leaves``; ``N(w+1) = number of internal branches whose two children share Strahler order w``. Unlike `strahler_summary.n_branches` (per-unit-segment count, which double-counts long order-W chains along the trunk) and the C++ `horton_summary.n_branches` (a buggy "inheriting child" rule that mis-allocates leaves above bifurcations), this matches the paper's ratios cleanly: ``N(w) / N(w+1) ≈ R_n ≈ 3.5`` across consecutive ranks for the species-0 S3 champion at gen 400.
+- [`mechatree.stats.horton_ratios`](src/mechatree/stats.py) gained an `n_branches_override` kwarg (parallel to the existing `mean_length_override`). Used by [`notebooks/06_fractal_dimension.ipynb`](notebooks/06_fractal_dimension.ipynb) so the panel-(b) `R_n` fit and markers come from the same series (`horton_strahler_counts`) — previously the fit anchored on `summary.n_branches` (Horton stream count) while the markers plotted `strahler_summary.n_branches`, so the dashed reference line floated above the data points.
+- [`tests/test_stats.py`](tests/test_stats.py) — three new cases: `horton_strahler_counts_perfect_binary_tree` (depth-3 tree → `[8, 4, 2, 1]`), `_n1_equals_leaves_on_grown_tree` (the invariant the paper relies on, and the simulator now passes), `_empty_tree_returns_zero_length_array` (smoke).
+
+### Changed — Notebook 06 panel (b) wired to `horton_strahler_counts`
+
+- [`notebooks/06_fractal_dimension.ipynb`](notebooks/06_fractal_dimension.ipynb): the "# branches" trace and the `R_n` fit both consume `horton_strahler_counts(tree)` (= the Fortran `NsegmentsS`). Cell 3's `snapshot_cb` now stores the array under `"n_w"` per snapshot so the 25-yr open markers + panel-(c) time evolution use the same metric. The `tree.collapse_single_child_chains()` workaround that I added in the previous round to make `strahler_summary.n_branches[0]` match leaves is removed — the new count is correct regardless of chain artifacts.
+
+### Changed — Figstyle axis title closer to ticklabels
+
+- [`src/mechatree/plotting/figstyle.py`](src/mechatree/plotting/figstyle.py) `_axis_style()`: set `title.standoff = 6` (px). Plotly's default standoff is ~20 px which leaves the axis title visually detached from the ticklabels; 6 px matches the SoftMobility / MATLAB compact layout.
+
+### Added — Step 22: Unified figure style (plotly, MATLAB look)
+
+- [`mechatree.plotting.figstyle`](src/mechatree/plotting/figstyle.py) — single-file plotly counterpart of [`SoftMobility/softmobility/classes/figstyle.py`](../SoftMobility/softmobility/classes/figstyle.py). Registers a `go.layout.Template` under `pio.templates["mechatree"]` with white background, 4-sided `mirror=True` black frame, `ticks="inside"` (true MATLAB default), Helvetica 11 pt, `colorway` from `COLORS`, and an orthographic 3D scene. Public API: `apply()`, `figure(size, aspect)`, `subplots(...)`, `figure_3d(...)`, `save(fig, name)`, `set_strahler_cmap(name)`, `strahler_color(order)`, plus the `COLORS` / `SIZES` / `FONT` dicts. Same names as the SoftMobility module so the muscle-memory transfers.
+- Four 10-stop Strahler colormaps sampled from MATLAB's `colormap(name)`: `"jet"` (default, matching the `colormap('jet')` line in `../Eloy2017_NatComm_archive/plot_stat_single_tree.m:58`), `"cool"` (literal match for the `colormap('cool')` line at `:37`), `"parula"` (post-R2014b default), `"rainbow"` (legacy `_palette.RAINBOW_STRAHLER`). Pick via `set_strahler_cmap("...")`.
+- [`examples/figstyle_compare.py`](examples/figstyle_compare.py) — A/B benchmark script. Renders the species-0 S3 champion under all four Strahler palettes, then the same line plot under four font stacks (Helvetica / Arial / Computer Modern / system-ui), then the same plot under all four (ticks-inside vs ticks-outside) × (4-sided frame vs no top/right) combinations. `uv run python examples/figstyle_compare.py` opens three browser tabs.
+- [`tests/test_figstyle.py`](tests/test_figstyle.py) — 7 cases covering template registration, sized canvas dimensions, axis attributes (`mirror=True`, `ticks="inside"`, `showgrid=False`), `COLORS` hex validation, the Strahler cmap switch, and unknown-cmap error.
+- New "Strahler palette benchmark" cell in [`notebooks/06_fractal_dimension.ipynb`](notebooks/06_fractal_dimension.ipynb): renders the mature champion under all four palettes in a 1×4 plotly subplot grid.
+
+### Changed — Step 22
+
+- All seven plotly helpers in [`src/mechatree/plotting/`](src/mechatree/plotting/) (`plot_2d`, `plot_3d`, `plot_tree_3d`, `plot_forest_topdown`, `plot_self_thinning`, `plot_allocation`, `plot_strahler_diagnostics`) now build their figures through `figstyle.figure*` and pull colors from `figstyle.COLORS` instead of named CSS strings (`"forestgreen"`, `"saddlebrown"`, `"magenta"`, `"cyan"`, etc.) — the per-figure `update_layout(paper_bgcolor="white", ...)` boilerplate is gone. Public signatures unchanged except `plot_tree_3d`'s `leaf_color` argument defaults to `None` (resolved to `figstyle.COLORS["green"]` at call time).
+- [`examples/grow_a_forest.py`](examples/grow_a_forest.py) inline twin-axis figure rewritten through `figstyle.figure`.
+- All 6 forester notebooks call `figstyle.apply()` in their first code cell; notebooks 02, 03, 04, and 06 also swap their direct `plotly.subplots.make_subplots` calls for `figstyle.subplots(...)` to inherit the template + sizing.
+
+### Fixed — CI lint job
+
+- [`pyproject.toml`](pyproject.toml): `[tool.uv.sources].dendroflow` was unconditional, so `uv pip install -e ".[dev]"` on the GH Actions runner tried (and failed) to resolve the editable path `../DendroFlow` (which does not exist on CI). Gated on `extra = "dendroflow"` so the sibling-checkout source is only consulted when the optional `dendroflow` extra is requested. Local-developer workflow `uv pip install -e ".[dendroflow]"` is unchanged.
+
 ### Changed — `volume_ratio_leaf` default 8.0 → 4.0
 
 - [`mechatree.config.TreeConfig.volume_ratio_leaf`](src/mechatree/config.py) default flipped from `8.0` to `4.0`, matching the Nat Commun reference `Forest_reference.ini` (kept locally under `~/Documents/Arbres/FORTRAN/ART_Revision2/` and `…/ART_Revision2b/`) and the SI Fig. S12 caption (`V_prod = 4 V_0 l`). The legacy `legacy_fortran/Forest.ini` (the older PNAS-submission tarball) still has `VolumeRatioLeaf = 8.0d0`, which is what prior MechaTree code mirrored; that file is unedited per the `legacy_fortran/` provenance rule. Likely fixes a long-standing branch-count over-production: at 200 yr with the species-0 S3 champion, branch count drops from ~77k (VRL=8) to ~8k (VRL=4), in line with the paper's ~10⁴.

@@ -20,7 +20,7 @@ from __future__ import annotations
 import inspect
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -180,11 +180,21 @@ def grow_tree(
     if sun is None:
         sun = Sun()
     if safety is None or allocation is None:
-        default_safety, default_allocation = models_from_config(genome_cfg, base_dir=base_dir)
+        default_safety, default_allocation, default_angles = models_from_config(
+            genome_cfg, base_dir=base_dir
+        )
         if safety is None:
             safety = default_safety
         if allocation is None:
             allocation = default_allocation
+        # When the YAML config selects a Neural champion via ``genome.neural_from``,
+        # ``models_from_config`` also returns the champion's branching angles.
+        # Apply them to ``tree_cfg`` so the simulator uses the champion's actual
+        # geometry (Fortran genome[0..2]) rather than the YAML's tree.theta*/gamma*
+        # defaults. Without this override, the YAML defaults would silently
+        # shadow the champion's encoded geometry.
+        if default_angles is not None:
+            tree_cfg = replace(tree_cfg, **default_angles)
     if wind_fn is None:
         wind_fn = _resolve_wind_fn(config)
 

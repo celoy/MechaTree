@@ -128,13 +128,22 @@ def test_neural_allocation_weights_roundtrip():
     np.testing.assert_array_equal(na.weights, w)
 
 
-def test_load_champion_returns_models_and_metadata():
-    safety, allocation, meta = load_champion(CHAMPION_JSON, species_id=0)
+def test_load_champion_returns_models_angles_and_non_coding():
+    safety, allocation, angles, non_coding = load_champion(CHAMPION_JSON, species_id=0)
     assert isinstance(safety, NeuralSafety)
     assert isinstance(allocation, NeuralAllocation)
-    assert meta["species_id"] == 0
-    assert meta["dataset"] == "S3.dat"
-    assert "champion_index" in meta
+    assert non_coding["species_id"] == 0
+    assert non_coding["dataset"] == "S3.dat"
+    assert "champion_index" in non_coding
+    # Angles dict ready for ``replace(cfg.tree, **angles)``.
+    assert set(angles) == {"theta1", "theta2", "gamma1", "gamma2"}
+    for v in angles.values():
+        assert isinstance(v, float)
+    # Fortran formula: theta1 = genome(1) * pi/2, theta2 = -genome(2) * pi/2,
+    # gamma1 = gamma2 = genome(3) * 2*pi. Both gammas equal.
+    assert angles["gamma1"] == angles["gamma2"]
+    assert angles["theta1"] > 0
+    assert angles["theta2"] < 0
 
 
 def test_load_champion_unknown_species_raises():
@@ -145,5 +154,8 @@ def test_load_champion_unknown_species_raises():
 def test_load_all_champions_returns_one_per_species():
     items = load_all_champions(CHAMPION_JSON)
     assert len(items) == 2
-    ids = {meta["species_id"] for _, _, meta in items}
+    ids = {non_coding["species_id"] for _, _, _, non_coding in items}
     assert ids == {0, 1}
+    # Each entry exposes the champion's angles as the third element.
+    for _, _, angles, _ in items:
+        assert set(angles) == {"theta1", "theta2", "gamma1", "gamma2"}

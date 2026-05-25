@@ -213,12 +213,105 @@ class HortonRatios:
     fit_orders: np.ndarray
 
 
+def mean_stream_length(tree: PyTree) -> np.ndarray:
+    """Mean Horton-Strahler stream length per Strahler rank, in unit twigs.
+
+    Reproduces the Fortran ``length_Strahler`` array
+    (``mod_tree.f90:1091-1097``, written to ``Z_length_*.dat``), which the
+    MATLAB ``Fractal_dim.m`` plots as the per-rank ``<l>`` trace and feeds
+    to the ``R_l`` fit in SI Fig. S8(b).
+
+    For each Strahler rank ``w``::
+
+        L(w) = (# segments with Strahler == w) / (# streams of order w)
+
+    Numerator from :func:`strahler_summary`; denominator from
+    :func:`horton_strahler_counts`. In a clean binary tree every leaf is a
+    single-segment order-1 stream so ``L(1) = 1``; in MechaTree
+    chain-merger artifacts let ``L(1)`` drift slightly above 1, and higher
+    ranks recover the geometric growth ``L(w+1) / L(w) = R_l ≈ 1.7``
+    that the paper reports.
+
+    This is the right length series for the ``R_l`` fit (the Fortran's own
+    output). The radial-distance metric :func:`mean_distance_to_leaves`
+    biases the slope ~8% high in MechaTree and pushes the recovered
+    fractal dimension ``D = log R_n / log R_l`` ~10% low.
+
+    Returns a 1D ``np.float64`` array of length ``max_strahler``; entry
+    ``k`` is the value for rank ``k + 1``.
+    """
+    n_w = horton_strahler_counts(tree)
+    if n_w.size == 0:
+        return np.zeros(0)
+    seg_counts = strahler_summary(tree).n_branches.astype(np.float64)
+    # Both arrays are indexed by Strahler rank starting at 1; pad the
+    # shorter one if a rank is missing from either (shouldn't happen since
+    # both call set_strahler, but guard anyway).
+    W = max(seg_counts.size, n_w.size)
+    if seg_counts.size < W:
+        seg_counts = np.concatenate([seg_counts, np.zeros(W - seg_counts.size)])
+    if n_w.size < W:
+        n_w = np.concatenate([n_w, np.zeros(W - n_w.size, dtype=n_w.dtype)])
+    return np.divide(
+        seg_counts, n_w.astype(np.float64), out=np.zeros(W, dtype=np.float64), where=n_w > 0
+    )
+
+
+def horton_strahler_counts(tree: PyTree) -> np.ndarray:
+    """Per-Horton-Strahler-stream count N(w), matching the paper.
+
+    Reproduces the Fortran formula in ``mod_tree.f90:1052-1070`` (writer of
+    ``Z_Nsegments_*.dat``, the file the paper's SI Fig. S8(b) plots as
+    "number of branches per Strahler order"):
+
+    - ``N(1) = number of leaves`` (terminal branches).
+    - ``N(w+1) = number of internal branches whose two children have
+      identical Strahler order w``.
+
+    This is the classical Horton-Strahler **stream** count, not the
+    per-segment Strahler count. In a unit-twig representation (MechaTree
+    and the Fortran reference) the per-segment Strahler count at high
+    ranks is dominated by long chains of equal-order segments along the
+    main trunk and overcounts the topology — e.g. the trunk's order-W
+    main path may contain dozens of unit segments yet only one bifurcation
+    actually creates a new order-W stream.
+
+    Returns a 1D ``np.int64`` array of length ``max_strahler``; entry
+    ``k`` is the count for rank ``k + 1``.
+    """
+    tree.set_strahler()
+    n = tree.get_number_of_branches()
+    if n == 0:
+        return np.zeros(0, dtype=np.int64)
+    strahler = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        strahler[i] = tree.get_strahler(i)
+    max_order = int(strahler.max())
+    counts = np.zeros(max_order, dtype=np.int64)
+    n_leaves = 0
+    for i in range(n):
+        kids = tree.get_children_index(i)
+        if not kids:
+            n_leaves += 1
+            continue
+        if len(kids) != 2:
+            continue
+        s1 = int(strahler[kids[0]])
+        s2 = int(strahler[kids[1]])
+        if s1 == s2:
+            # New stream of order s1 + 1 starts at this bifurcation.
+            counts[s1] += 1  # 0-indexed entry for rank s1 + 1
+    counts[0] = int(n_leaves)
+    return counts
+
+
 def horton_ratios(
     summary: HortonSummary | StrahlerSummary,
     *,
     drop_top: bool = True,
     max_rank: int | None = None,
     mean_length_override: np.ndarray | None = None,
+    n_branches_override: np.ndarray | None = None,
 ) -> HortonRatios:
     """Log-linear fit of per-rank quantities → bifurcation ratios + fractal D.
 
@@ -254,6 +347,12 @@ def horton_ratios(
     ``R_l`` from the recursive distance-to-leaves rather than the
     per-stream chain length that ``HortonSummary.mean_length`` reports.
 
+    ``n_branches_override`` substitutes a different per-rank count array
+    for the ``R_n`` fit (typically :func:`horton_strahler_counts`, the
+    Fortran reference). Required when the markers in the figure are
+    drawn from a different series than ``summary.n_branches``, so the
+    fit line passes through the markers rather than a parallel series.
+
     Raises ``ValueError`` if fewer than two ranks remain after the
     drop_top exclusion and masking of zero counts.
     """
@@ -268,7 +367,16 @@ def horton_ratios(
     if last < 2:
         raise ValueError(f"need at least 2 usable ranks, got {last} (try drop_top=False)")
     w_all = np.arange(1, last + 1, dtype=float)
-    counts = summary.n_branches[:last].astype(float)
+    if n_branches_override is not None:
+        if n_branches_override.shape != summary.n_branches.shape:
+            raise ValueError(
+                "n_branches_override shape "
+                f"{n_branches_override.shape} does not match summary "
+                f"{summary.n_branches.shape}"
+            )
+        counts = n_branches_override[:last].astype(float)
+    else:
+        counts = summary.n_branches[:last].astype(float)
     if mean_length_override is not None:
         if mean_length_override.shape != summary.n_branches.shape:
             raise ValueError(
@@ -438,9 +546,11 @@ __all__ = [
     "StrahlerSummary",
     "distance_to_leaves",
     "horton_ratios",
+    "horton_strahler_counts",
     "horton_summary",
     "leonardo_ratios",
     "mean_distance_to_leaves",
+    "mean_stream_length",
     "strahler_summary",
     "tokunaga_matrix",
 ]

@@ -35,6 +35,8 @@ def plot_2d(
     """
     import plotly.graph_objects as go
 
+    from mechatree.plotting import figstyle
+
     xs: list[float | None] = []
     ys: list[float | None] = []
     for n in range(tree.get_number_of_branches()):
@@ -47,26 +49,21 @@ def plot_2d(
         xs.extend([x1, x2, None])
         ys.extend([y1, y2, None])
 
-    fig = go.Figure(
-        data=[
-            go.Scatter(
-                x=xs,
-                y=ys,
-                mode="lines",
-                line=dict(color="red", width=1),  # noqa: C408
-                hoverinfo="skip",
-                showlegend=False,
-            )
-        ]
+    fig = figstyle.figure(size="half", aspect=1.0)
+    fig.add_trace(
+        go.Scatter(
+            x=xs,
+            y=ys,
+            mode="lines",
+            line=dict(color=figstyle.COLORS["red"], width=1),  # noqa: C408
+            hoverinfo="skip",
+            showlegend=False,
+        )
     )
     fig.update_layout(
         xaxis=dict(visible=False, scaleanchor="y", scaleratio=1),  # noqa: C408
         yaxis=dict(visible=False),  # noqa: C408
         margin=dict(l=0, r=0, t=0, b=0),  # noqa: C408
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        width=600,
-        height=600,
     )
 
     if out_dir is not None:

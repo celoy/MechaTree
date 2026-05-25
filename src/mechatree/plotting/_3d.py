@@ -28,6 +28,8 @@ def plot_3d(tree, leaf_length: float = 0.2):
     """
     import plotly.graph_objects as go
 
+    from mechatree.plotting import figstyle
+
     branch_x: list[float | None] = []
     branch_y: list[float | None] = []
     branch_z: list[float | None] = []
@@ -56,14 +58,14 @@ def plot_3d(tree, leaf_length: float = 0.2):
             leaf_y.extend([y2, y2 + leaf_length * dy, None])
             leaf_z.extend([z2, z2 + leaf_length * dz, None])
 
-    fig = go.Figure()
+    fig = figstyle.figure_3d(size="half", show_axes=False)
     fig.add_trace(
         go.Scatter3d(
             x=branch_x,
             y=branch_y,
             z=branch_z,
             mode="lines",
-            line=dict(color="black", width=3),  # noqa: C408
+            line=dict(color=figstyle.COLORS["black"], width=3),  # noqa: C408
             hoverinfo="skip",
             showlegend=False,
         )
@@ -75,25 +77,12 @@ def plot_3d(tree, leaf_length: float = 0.2):
                 y=leaf_y,
                 z=leaf_z,
                 mode="lines",
-                line=dict(color="green", width=6),  # noqa: C408
+                line=dict(color=figstyle.COLORS["green"], width=6),  # noqa: C408
                 hoverinfo="skip",
                 showlegend=False,
             )
         )
-    fig.update_layout(
-        scene=dict(  # noqa: C408
-            xaxis=dict(visible=False),  # noqa: C408
-            yaxis=dict(visible=False),  # noqa: C408
-            zaxis=dict(visible=False),  # noqa: C408
-            aspectmode="data",
-            camera=dict(  # noqa: C408
-                projection=dict(type="orthographic"),  # noqa: C408
-                eye=dict(x=0.9, y=0.9, z=0.45),  # noqa: C408
-            ),
-        ),
-        margin=dict(l=0, r=0, t=0, b=0),  # noqa: C408
-        paper_bgcolor="white",
-    )
+    fig.update_scenes(aspectmode="data")
     return fig
 
 

@@ -39,11 +39,14 @@ def plot_self_thinning(history):
     plotly.graph_objects.Figure
     """
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
+
+    from mechatree.plotting import figstyle
 
     gens, ns, ms = _unpack_thinning(history)
 
-    fig = make_subplots(
+    fig = figstyle.subplots(
+        size="full",
+        aspect=3.0,
         rows=1,
         cols=3,
         subplot_titles=(
@@ -58,7 +61,7 @@ def plot_self_thinning(history):
             x=gens,
             y=ns,
             mode="lines",
-            line=dict(color="forestgreen"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["green"]),  # noqa: C408
             showlegend=False,
         ),
         row=1,
@@ -69,7 +72,7 @@ def plot_self_thinning(history):
             x=gens,
             y=ms,
             mode="lines",
-            line=dict(color="saddlebrown"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["brown"]),  # noqa: C408
             showlegend=False,
         ),
         row=1,
@@ -85,7 +88,7 @@ def plot_self_thinning(history):
                 x=xs,
                 y=ys,
                 mode="lines+markers",
-                line=dict(color="black"),  # noqa: C408
+                line=dict(color=figstyle.COLORS["black"]),  # noqa: C408
                 marker=dict(size=4),  # noqa: C408
                 name="data",
                 showlegend=False,
@@ -103,7 +106,7 @@ def plot_self_thinning(history):
                 x=ref_n,
                 y=ref_m,
                 mode="lines",
-                line=dict(color="red", dash="dash"),  # noqa: C408
+                line=dict(color=figstyle.COLORS["red"], dash="dash"),  # noqa: C408
                 name="M ∝ N^{-3/2}",
             ),
             row=1,
@@ -119,13 +122,7 @@ def plot_self_thinning(history):
     fig.update_xaxes(title_text="N (trees alive)", row=1, col=3)
     fig.update_yaxes(title_text="M (total biomass)", row=1, col=3)
 
-    fig.update_layout(
-        width=1200,
-        height=400,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        margin=dict(l=60, r=20, t=40, b=50),  # noqa: C408
-    )
+    fig.update_layout(margin=dict(l=60, r=20, t=40, b=50))  # noqa: C408
     return fig
 
 
@@ -151,6 +148,8 @@ def plot_allocation(stats_history, volume_twig: float = 1.0):
     """
     import plotly.graph_objects as go
 
+    from mechatree.plotting import figstyle
+
     stats = list(stats_history)
     gens = [s.generation for s in stats]
 
@@ -159,13 +158,13 @@ def plot_allocation(stats_history, volume_twig: float = 1.0):
     def safe(series):
         return [max(0.5, v) for v in series]
 
-    fig = go.Figure()
+    fig = figstyle.figure(size="full", aspect=9 / 5)
     fig.add_trace(
         go.Scatter(
             x=gens,
             y=safe([s.n_branches for s in stats]),
             mode="lines",
-            line=dict(color="black"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["black"]),  # noqa: C408
             name="N branches",
         )
     )
@@ -174,7 +173,7 @@ def plot_allocation(stats_history, volume_twig: float = 1.0):
             x=gens,
             y=safe([s.wind_amplitude for s in stats]),
             mode="lines",
-            line=dict(color="red"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["red"]),  # noqa: C408
             name="wind amplitude",
         )
     )
@@ -183,7 +182,7 @@ def plot_allocation(stats_history, volume_twig: float = 1.0):
             x=gens,
             y=safe([s.n_seeds for s in stats]),
             mode="lines",
-            line=dict(color="magenta"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["blue"]),  # noqa: C408
             name="new seeds",
         )
     )
@@ -192,7 +191,7 @@ def plot_allocation(stats_history, volume_twig: float = 1.0):
             x=gens,
             y=safe([s.n_pruned for s in stats]),
             mode="lines+markers",
-            line=dict(color="cyan"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["grey"]),  # noqa: C408
             marker=dict(size=4),  # noqa: C408
             name="N pruned",
         )
@@ -202,7 +201,7 @@ def plot_allocation(stats_history, volume_twig: float = 1.0):
             x=gens,
             y=safe([s.reserve / volume_twig for s in stats]),
             mode="lines",
-            line=dict(color="black", dash="dash"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["black"], dash="dash"),  # noqa: C408
             name="reserve / V_twig",
         )
     )
@@ -212,14 +211,8 @@ def plot_allocation(stats_history, volume_twig: float = 1.0):
         xaxis_title="generation",
         yaxis_title="count / amplitude / multiples of V_twig",
         yaxis_type="log",
-        width=900,
-        height=500,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
         margin=dict(l=60, r=20, t=60, b=50),  # noqa: C408
     )
-    fig.update_xaxes(gridcolor="lightgrey")
-    fig.update_yaxes(gridcolor="lightgrey")
     return fig
 
 
@@ -248,15 +241,17 @@ def plot_strahler_diagnostics(tree: PyTree):
     plotly.graph_objects.Figure
     """
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
 
+    from mechatree.plotting import figstyle
     from mechatree.stats import leonardo_ratios, strahler_summary
 
     summary = strahler_summary(tree)
     ratios = leonardo_ratios(tree)
 
     title4 = f"Area-preservation at {ratios.size} junctions" if ratios.size else "Area-preservation"
-    fig = make_subplots(
+    fig = figstyle.subplots(
+        size="full",
+        aspect=11 / 8,
         rows=2,
         cols=2,
         subplot_titles=(
@@ -268,7 +263,7 @@ def plot_strahler_diagnostics(tree: PyTree):
     )
 
     orders = list(range(1, summary.max_order + 1))
-    marker = dict(color="black", size=6)  # noqa: C408
+    marker = dict(color=figstyle.COLORS["black"], size=6)  # noqa: C408
 
     fig.add_trace(
         go.Scatter(x=orders, y=summary.n_branches, mode="markers", marker=marker, showlegend=False),
@@ -294,8 +289,8 @@ def plot_strahler_diagnostics(tree: PyTree):
                 x=ratios,
                 nbinsx=20,
                 marker=dict(  # noqa: C408
-                    color="forestgreen",
-                    line=dict(color="black", width=1),  # noqa: C408
+                    color=figstyle.COLORS["green"],
+                    line=dict(color=figstyle.COLORS["black"], width=1),  # noqa: C408
                 ),
                 showlegend=False,
             ),
@@ -304,7 +299,7 @@ def plot_strahler_diagnostics(tree: PyTree):
         )
         fig.add_vline(
             x=1.0,
-            line=dict(color="red", dash="dash"),  # noqa: C408
+            line=dict(color=figstyle.COLORS["red"], dash="dash"),  # noqa: C408
             annotation_text="Leonardo (=1)",
             row=2,
             col=2,
@@ -328,13 +323,7 @@ def plot_strahler_diagnostics(tree: PyTree):
     fig.update_xaxes(title_text="(A_L + A_R) / A_P", row=2, col=2)
     fig.update_yaxes(title_text="count", row=2, col=2)
 
-    fig.update_layout(
-        width=1100,
-        height=800,
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        margin=dict(l=60, r=20, t=60, b=50),  # noqa: C408
-    )
+    fig.update_layout(margin=dict(l=60, r=20, t=60, b=50))  # noqa: C408
     return fig
 
 

@@ -206,19 +206,22 @@ def test_genome_config_rejects_empty_string_field():
 
 def test_models_from_config_dispatches_to_sympy_when_any_expression():
     gc = GenomeConfig(safety="3.0", p_seeds=0.1, p_leaves=0.5, phototropism=0.5)
-    safety, allocation = models_from_config(gc)
+    safety, allocation, angles = models_from_config(gc)
     assert isinstance(safety, SafetyModel)
     assert isinstance(allocation, AllocationModel)
     # Concretely, the SymPy path produces Callback* (not Constant*).
     assert isinstance(safety, CallbackSafety)
     assert isinstance(allocation, CallbackAllocation)
+    # Non-Neural paths return angles=None so the simulator keeps the YAML defaults.
+    assert angles is None
 
 
 def test_models_from_config_uses_constants_when_all_numeric():
     gc = GenomeConfig(safety=3.0, p_seeds=0.1, p_leaves=0.5, phototropism=0.5)
-    safety, allocation = models_from_config(gc)
+    safety, allocation, angles = models_from_config(gc)
     assert isinstance(safety, ConstantSafety)
     assert isinstance(allocation, ConstantAllocation)
+    assert angles is None
 
 
 def test_yaml_string_expression_grows_a_tree(tmp_path):

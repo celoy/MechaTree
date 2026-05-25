@@ -24,7 +24,7 @@ from pathlib import Path
 
 from mechatree.config import load_config
 from mechatree.forest import Forest
-from mechatree.plotting import plot_forest_topdown
+from mechatree.plotting import figstyle, plot_forest_topdown
 
 
 def main() -> None:
@@ -77,6 +77,8 @@ def main() -> None:
     if not args.no_show:
         import plotly.graph_objects as go
 
+        figstyle.apply()
+
         # Population & biomass over time (twin y-axis via plotly's yaxis2).
         # The top-down view is opened separately because its equal-scale
         # geometry doesn't compose cleanly into a subplot grid.
@@ -84,13 +86,13 @@ def main() -> None:
         trees_over_time = [h[1] for h in history]
         biomass_over_time = [h[2] for h in history]
 
-        fig_history = go.Figure()
+        fig_history = figstyle.figure(size="full", aspect=9 / 5)
         fig_history.add_trace(
             go.Scatter(
                 x=gens,
                 y=trees_over_time,
                 name="trees alive",
-                line=dict(color="forestgreen"),  # noqa: C408
+                line=dict(color=figstyle.COLORS["green"]),  # noqa: C408
                 yaxis="y",
             )
         )
@@ -99,7 +101,7 @@ def main() -> None:
                 x=gens,
                 y=biomass_over_time,
                 name="biomass",
-                line=dict(color="saddlebrown"),  # noqa: C408
+                line=dict(color=figstyle.COLORS["brown"]),  # noqa: C408
                 yaxis="y2",
             )
         )
@@ -107,19 +109,15 @@ def main() -> None:
             title="Population & biomass over time",
             xaxis_title="generation",
             yaxis=dict(  # noqa: C408
-                title=dict(text="trees alive", font=dict(color="forestgreen")),  # noqa: C408
-                tickfont=dict(color="forestgreen"),  # noqa: C408
+                title=dict(text="trees alive", font=dict(color=figstyle.COLORS["green"])),  # noqa: C408
+                tickfont=dict(color=figstyle.COLORS["green"]),  # noqa: C408
             ),
             yaxis2=dict(  # noqa: C408
-                title=dict(text="total biomass", font=dict(color="saddlebrown")),  # noqa: C408
-                tickfont=dict(color="saddlebrown"),  # noqa: C408
+                title=dict(text="total biomass", font=dict(color=figstyle.COLORS["brown"])),  # noqa: C408
+                tickfont=dict(color=figstyle.COLORS["brown"]),  # noqa: C408
                 overlaying="y",
                 side="right",
             ),
-            paper_bgcolor="white",
-            plot_bgcolor="white",
-            width=900,
-            height=500,
         )
         fig_history.show()
 

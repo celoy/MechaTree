@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -93,13 +93,18 @@ class Forest:
     def __post_init__(self) -> None:
         self.rng = np.random.default_rng(self.seed)
         if self.safety is None or self.allocation is None:
-            default_safety, default_allocation = models_from_config(
+            default_safety, default_allocation, default_angles = models_from_config(
                 self.config.genome, base_dir=self.config.base_dir
             )
             if self.safety is None:
                 self.safety = default_safety
             if self.allocation is None:
                 self.allocation = default_allocation
+            # YAML ``genome.neural_from`` → use the champion's branching angles
+            # (Fortran genome[0..2]) instead of the YAML ``tree:`` defaults.
+            # See simulate.grow_tree for the matching code path.
+            if default_angles is not None:
+                self.config = replace(self.config, tree=replace(self.config.tree, **default_angles))
         if self.wind_fn is None:
             self.wind_fn = _resolve_wind_fn(self.config)
         self._wind_arity = _callback_arity(self.wind_fn)
