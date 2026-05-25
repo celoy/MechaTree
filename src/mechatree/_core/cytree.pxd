@@ -168,3 +168,14 @@ cdef extern from "pruning.h" nogil:
         const array3d& wind,
         double leaf_drag_S0,
         double cauchy) except +
+
+cdef extern from "light.h" nogil:
+    void cpp_light_intercept "light_intercept"(
+        const double* leaf_locations,
+        size_t n_leaves,
+        const double* sun_elev,
+        const double* sun_azim,
+        size_t n_directions,
+        double size_leaf,
+        double leaf_transparency,
+        double* light_per_direction) except +

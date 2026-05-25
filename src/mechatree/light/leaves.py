@@ -64,32 +64,46 @@ def extract_leaves(trees: Iterable[PyTree], n_directions: int = 0) -> Leaves:
     a zero ``(n, n_directions)`` array; ``intercept`` fills it in. Passing
     ``n_directions=0`` (the default) is fine for callers that only need
     the geometry.
+
+    Uses the C++ batched accessor :meth:`PyTree.get_leaf_tips_batch` so
+    every leaf in a tree is read in one Cython call — required for
+    island-scale (Step 21b) where the per-leaf Python loop dominated
+    light-interception cost.
     """
     trees_list = list(trees)
+    if not trees_list:
+        return Leaves(
+            location=np.zeros((0, 3), dtype=np.float64),
+            branch_index=np.zeros(0, dtype=np.int32),
+            tree_index=np.zeros(0, dtype=np.int32),
+            light_per_direction=np.zeros((0, n_directions), dtype=np.float64),
+        )
 
-    locs: list[np.ndarray] = []
-    branch_idx: list[int] = []
-    tree_idx: list[int] = []
-
+    per_tree_tips: list[np.ndarray] = []
+    per_tree_branches: list[np.ndarray] = []
+    per_tree_indices: list[np.ndarray] = []
     for ti, tree in enumerate(trees_list):
-        # We need the trunk's location, length, unit_t to compute the leaf
-        # tip per the Fortran convention. PyTree gives us those one branch
-        # at a time — there's no batched accessor in PR1's API. That's
-        # fine; this is called once per generation.
-        for bi in tree.leaf_indices():
-            base = np.asarray(tree.get_location(bi), dtype=np.float64)
-            unit_t = np.asarray(tree.get_unit_t(bi), dtype=np.float64)
-            length = float(tree.get_length(bi))
-            tip = base + length * unit_t
-            locs.append(tip)
-            branch_idx.append(bi)
-            tree_idx.append(ti)
+        tips, branches = tree.get_leaf_tips_batch()
+        if tips.shape[0] == 0:
+            continue
+        per_tree_tips.append(tips)
+        per_tree_branches.append(branches)
+        per_tree_indices.append(np.full(tips.shape[0], ti, dtype=np.int32))
 
-    n = len(locs)
-    location = np.asarray(locs, dtype=np.float64) if n else np.zeros((0, 3), dtype=np.float64)
+    if not per_tree_tips:
+        return Leaves(
+            location=np.zeros((0, 3), dtype=np.float64),
+            branch_index=np.zeros(0, dtype=np.int32),
+            tree_index=np.zeros(0, dtype=np.int32),
+            light_per_direction=np.zeros((0, n_directions), dtype=np.float64),
+        )
+
+    location = np.concatenate(per_tree_tips, axis=0)
+    branch_index = np.concatenate(per_tree_branches)
+    tree_index = np.concatenate(per_tree_indices)
     return Leaves(
         location=location,
-        branch_index=np.asarray(branch_idx, dtype=np.int32),
-        tree_index=np.asarray(tree_idx, dtype=np.int32),
-        light_per_direction=np.zeros((n, n_directions), dtype=np.float64),
+        branch_index=branch_index,
+        tree_index=tree_index,
+        light_per_direction=np.zeros((location.shape[0], n_directions), dtype=np.float64),
     )
