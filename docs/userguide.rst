@@ -339,6 +339,10 @@ with prose between the cells:
   ``Sun``, ``ConstantSafety``, ``ConstantAllocation``.
 - ``notebooks/05_strahler_diagnostics.ipynb`` — self-similar branching
   analysis.
+- ``notebooks/06_fractal_dimension.ipynb`` — reproduces SI Fig. S8 of
+  Eloy et al. 2017 for one of the S3 champion genomes: Horton ratios
+  :math:`R_n, R_l, R_d, R_a, D`, time evolution, branch tapering, and
+  area conservation.
 
 Install the notebook extra (``uv pip install -e ".[notebooks]"``) and
 launch with ``uv run jupyter lab``. Output cells are stripped by

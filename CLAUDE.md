@@ -70,7 +70,7 @@ These principles came out of the user's roadmap notes. They guide all Step-8+ wo
 - **Mechanics is central.** Load propagation (wind force → bending moments → stresses up the tree graph) lives in the compiled core. Hot path; do not push to Python.
 - **Light interception is detached.** Separate module. Input: a list of `Leaf` records (location, diameter, transparency). Output: light absorbed per leaf. Decoupled from `PyTree` so it can apply to a single tree, a forest, or any leaf cloud.
 - **Genome as callback.** Fortran's `neural_branch` / `neural_reserve` decision functions become user-supplied Python callables (or a small set of named built-ins). Trees do not own a genome class; they accept decision callables.
-- **Evolution is external.** The evolutionary algorithm (`EvoluAlgo.f90`, `mod_evolu.f90`) is **not** part of the core library. Possibly a separate package or notebook later.
+- **Evolution lives behind a clean boundary.** The evolutionary algorithm (`EvoluAlgo.f90`, `mod_evolu.f90`) gets ported as part of Step 21. Whether it ships as `mechatree.evolution` or as a sister package is one of Step 21's open design questions; either way it must import the simulator, never the other way round.
 - **Forest is a container.** Many trees, spatial layout, lifecycle (birth → growth → death). Cross-tree light competition handled by the detached light module operating on the union of leaves.
 - **Config in YAML/JSON.** Replace Fortran `.ini` files. Schema validated; an example file ships with the package.
 
@@ -105,6 +105,9 @@ The user prefers staged steps. The table is the source of truth — flip a row's
 | 16 | Neural genome (`Neural*`)           | ✅ done    | header-only C++ port of the Fortran 3-layer tanh nets ([genome.h](src/mechatree/_core/genome.h)), verified to atol=1e-12. Champion JSON loader. |
 | 17 | DendroFlow wind bridge              | ✅ done    | [src/mechatree/wind/dendroflow.py](src/mechatree/wind/dendroflow.py) wraps DendroFlow's `BulkThinningBranchWindModel` as a 3-arg `WindFn`. YAML `wind:` block selects it. M6 of DendroFlow. |
 | 18 | Stable PyPI 0.1.0 release           | ⬜ pending | After Step 17 lands. Tag `v0.1.0`, flip the TestPyPI dry-run from Step 7 to a real-PyPI publish job. Mirrors DendroFlow's M7. |
+| 19 | Leaf transparency in light model    | ⬜ pending | Wire a single global scalar `light.leaf_transparency` (default reproduces today's binary topmost-wins behaviour) into [`mechatree.light.interception`](src/mechatree/light/interception.py): replace `max(1 - shadow, 0)` with `tau ** shadow` so light at depth `i` in a shadow cell is `tau^i` (1 → 0.5 → 0.25 → … for `tau=0.5`). New field on [`LightConfig`](src/mechatree/config.py), surfaced via YAML `light:`. ~15 LOC + a test that `tau=0` recovers the current binary behaviour and `tau=1` makes leaves fully transparent. |
+| 20 | Mesh3d cylindrical tree renderer    | ⬜ pending | Today's [`plot_tree_3d`](src/mechatree/plotting/_mechanics.py) uses pixel-width plotly `Scatter3d` lines bucketed by Strahler order, so individual branch diameters are flattened and the canopy looks pencil-thin compared to the Blender renders in the paper. Add a `style="cylinders"` path that extrudes each branch as a tapered `Mesh3d` cylinder (parent diameter → child diameter), with the existing `style="lines"` kept as the fast default. ~60 LOC + a small cylinder-primitive helper. |
+| 21 | Evolution port (`EvoluAlgo` / `mod_evolu`) | ⬜ pending | Port the Fortran evolutionary algorithm so the Nat Comms tournament simulations are reproducible end-to-end in Python: per-generation fitness evaluation via `grow_tree` on a population of `NeuralSafety` / `NeuralAllocation` champions, tournament selection, neural-net weight mutation + crossover, and a CSV/JSON dump matching `S3.dat` so [`scripts/strategies_single_tree.py`](scripts/strategies_single_tree.py) can keep loading champions the same way. Open design questions to settle before coding: separate package vs in-tree `mechatree.evolution` module; whether to parallelise fitness eval via `multiprocessing` or keep it sequential; whether to mirror the Fortran tournament structure verbatim or restructure around a `numpy`-friendly `Population` dataclass. Reverses the "Evolution is external" call in *Design principles for the simulator port*. |
 
 ### Step 1 notes (closed 2026-05-23)
 
@@ -173,6 +176,7 @@ Five plotly-inline Jupyter tutorials under [notebooks/](notebooks/), each a lite
 - [03_neural_genome.ipynb](notebooks/03_neural_genome.ipynb) — loads the two S3 champions from [data/S3_champions.json](data/S3_champions.json) and renders them side-by-side against the default constant genome.
 - [04_custom_growth_law.ipynb](notebooks/04_custom_growth_law.ipynb) — companion to [examples/custom_simulation.py](examples/custom_simulation.py). Plug-in `wind_fn` / `Sun` / `ConstantSafety` / `ConstantAllocation`.
 - [05_strahler_diagnostics.ipynb](notebooks/05_strahler_diagnostics.ipynb) — companion to [examples/plot_strahler.py](examples/plot_strahler.py). Horton–Strahler scaling, Leonardo's rule, Tokunaga matrix.
+- [06_fractal_dimension.ipynb](notebooks/06_fractal_dimension.ipynb) — reproduces SI Fig. S8 of Eloy et al. 2017 from the species-0 S3 champion. Five panels: 3D tree at 400 yr, log-log Horton ratios `R_n / R_l / R_d / R_a` + fractal dim `D`, time evolution from 25 yr to 500 yr, branch tapering scatter, area conservation. Added 2026-05-25 alongside two new public helpers in [src/mechatree/stats.py](src/mechatree/stats.py): `horton_summary(tree)` (per-Horton-stream means — needed because every MechaTree segment is a unit twig, so `strahler_summary.mean_length` is constant and only the chain length varies) and `horton_ratios(summary)` (log-linear fit returning the four ratios + `D = log R_n / log R_l`). Found and worked around a C++ staleness bug along the way: `Tree::setHorton` only calls `setStrahler` when `Strahler_distribution` is empty, so once Strahler is computed it never refreshes; `horton_summary` always forces `set_strahler()` first. Regression test in [tests/test_stats.py](tests/test_stats.py).
 
 [docs/userguide.rst](docs/userguide.rst) gained a `.. _canopy-aware-wind:` section pointing at Step 17's DendroFlow bridge and corrected the `wind_fn` type signature (2-arg or 3-arg). A dedicated canopy-aware-wind notebook is a sensible follow-up but wasn't required for Step 13's planned scope.
 
@@ -197,11 +201,14 @@ Closed-form genome expressions via SymPy. Two paths landed together:
 
 ### Notes on pending steps
 
-All pending steps are release-engineering (Step 7 — TestPyPI dry-run; Step 18 — stable PyPI). No design work outstanding.
+- **Step 7 / Step 18** — release engineering (TestPyPI dry-run + real PyPI). No design work outstanding.
+- **Step 19 — leaf transparency** — small, no design work outstanding; spec is the `tau ** shadow` formula.
+- **Step 20 — Mesh3d cylindrical renderer** — small, no design work outstanding; `style="cylinders"` toggle on `plot_tree_3d`.
+- **Step 21 — Evolution port** — non-trivial; settle the open design questions in the row before coding (package boundary, parallelism strategy, tournament shape).
 
 ## Out of scope (do not re-litigate unless explicitly asked)
 
-- **Evolution** (`legacy_fortran/EvoluAlgo.f90`, `legacy_fortran/mod_evolu.f90`) — deferred, possibly a separate package later. Per the design principle above, evolution is external to the core library.
+- *(empty for now — the previous "Evolution is external" entry was reinstated as roadmap Step 21 on 2026-05-25 at the user's request.)*
 
 ## How to update this file
 

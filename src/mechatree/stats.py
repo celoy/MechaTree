@@ -3,6 +3,9 @@
 
 - ``strahler_summary`` mirrors ``plot_stat_single_tree.m`` and the Strahler-
   order tables emitted by ``mod_tools.f90`` ``save_statistics``.
+- ``horton_ratios`` mirrors ``Fractal_dim.m`` — log-linear fit across
+  Strahler ranks recovering the bifurcation / length / diameter / area
+  ratios and the fractal dimension ``D = log R_n / log R_l``.
 - ``leonardo_ratios`` mirrors ``plot_area_preservation_1tree.m`` — the
   child-area / parent-area ratio at each binary branching node, used to
   test Leonardo da Vinci's rule that a parent branch's cross-section is
@@ -91,6 +94,180 @@ def strahler_summary(tree: PyTree) -> StrahlerSummary:
     )
 
 
+@dataclass
+class HortonSummary:
+    """Per-Horton-order stream summary for one tree.
+
+    A Horton **stream** of order ``w`` is a maximal chain of consecutive
+    branches that all carry Horton index ``w`` (i.e. an unbranched
+    sequence of branches that share an order). Each NumPy array is
+    indexed 0..max_order-1; entry ``k`` corresponds to Horton order
+    ``k + 1``.
+
+    Field semantics:
+
+    * ``n_branches`` — number of **streams** of order w (NOT the number
+      of segments). Equals ``Horton_distribution[w]`` from the C++ core.
+    * ``mean_length`` — mean stream length per order: sum of segment
+      lengths over segments with horton == w, divided by the number of
+      streams of order w. This is the Horton/Strahler length the paper
+      reports — in MechaTree every segment is a unit twig, so the
+      mean *segment* length is always 1 and only the per-stream mean
+      varies with order.
+    * ``mean_diameter``, ``mean_area`` — per-segment mean over segments
+      belonging to streams of order w (an average over chain members,
+      not over chains).
+    """
+
+    n_branches: np.ndarray  # (max_order,) int — stream count per order
+    mean_length: np.ndarray  # (max_order,) — mean stream length per order
+    mean_diameter: np.ndarray  # (max_order,)
+    mean_area: np.ndarray  # (max_order,)
+    total_area: np.ndarray  # (max_order,) — sum of cross-sections over segments
+    max_order: int
+
+
+def horton_summary(tree: PyTree) -> HortonSummary:
+    """Per-Horton-order stream statistics.
+
+    Use this for the architectural-ratio analysis (R_n, R_l, R_d, R_a, D)
+    that reproduces SI Fig. S8 of Eloy et al. 2017. The complementary
+    :func:`strahler_summary` reports per-segment means — useful for
+    histograms of segment properties but not for Horton's length ratio.
+    """
+    # set_horton() only recomputes Strahler when Strahler_distribution is
+    # empty — so on a tree that has grown since the last set_strahler the
+    # Horton labels would be derived from stale Strahler values. Force a
+    # refresh before letting set_horton run.
+    tree.set_strahler()
+    tree.set_horton()
+    n = tree.get_number_of_branches()
+    if n == 0:
+        empty = np.zeros((0,))
+        return HortonSummary(
+            n_branches=empty.astype(np.int64),
+            mean_length=empty,
+            mean_diameter=empty,
+            mean_area=empty,
+            total_area=empty,
+            max_order=0,
+        )
+
+    horton = np.empty(n, dtype=np.int64)
+    length = np.empty(n)
+    diameter = np.empty(n)
+    for i in range(n):
+        horton[i] = tree.get_horton(i)
+        length[i] = tree.get_length(i)
+        diameter[i] = tree.get_diameter(i)
+
+    max_order = int(horton.max())
+    dist = tree.get_horton_distribution()
+    n_streams = np.zeros(max_order, dtype=np.int64)
+    for k, v in dist.items():
+        if 1 <= k <= max_order:
+            n_streams[k - 1] = int(v)
+
+    sum_len = np.zeros(max_order)
+    sum_diam = np.zeros(max_order)
+    sum_area = np.zeros(max_order)
+    seg_count = np.zeros(max_order, dtype=np.int64)
+    area = 0.25 * math.pi * diameter * diameter
+    for k in range(1, max_order + 1):
+        mask = horton == k
+        seg_count[k - 1] = int(mask.sum())
+        sum_len[k - 1] = float(length[mask].sum())
+        sum_diam[k - 1] = float(diameter[mask].sum())
+        sum_area[k - 1] = float(area[mask].sum())
+
+    mean_len = np.divide(sum_len, n_streams, out=np.zeros_like(sum_len), where=n_streams > 0)
+    mean_diam = np.divide(sum_diam, seg_count, out=np.zeros_like(sum_diam), where=seg_count > 0)
+    mean_area = np.divide(sum_area, seg_count, out=np.zeros_like(sum_area), where=seg_count > 0)
+
+    return HortonSummary(
+        n_branches=n_streams,
+        mean_length=mean_len,
+        mean_diameter=mean_diam,
+        mean_area=mean_area,
+        total_area=sum_area,
+        max_order=max_order,
+    )
+
+
+@dataclass
+class HortonRatios:
+    """Geometric ratios across consecutive Strahler ranks for one tree.
+
+    ``R_n`` is the bifurcation ratio ``N_w / N_{w+1}``; ``R_l``, ``R_d``,
+    ``R_a`` are the length / diameter / area ratios ``X_{w+1} / X_w``. All
+    four are > 1 for real trees. ``D`` is the Horton-Strahler fractal
+    dimension ``log R_n / log R_l``. ``fit_orders`` records the Strahler
+    ranks that contributed to the log-linear fit.
+    """
+
+    R_n: float
+    R_l: float
+    R_d: float
+    R_a: float
+    D: float
+    fit_orders: np.ndarray
+
+
+def horton_ratios(
+    summary: HortonSummary | StrahlerSummary, *, drop_top: bool = True
+) -> HortonRatios:
+    """Log-linear fit of per-rank quantities → bifurcation ratios + fractal D.
+
+    Mirrors ``Fractal_dim.m`` from the Eloy et al. 2017 MATLAB archive.
+    For each per-rank series ``{n_branches, mean_length, mean_diameter,
+    mean_area}`` the log of the quantity is regressed on rank ``w``; the
+    matching geometric ratio is recovered as ``10**|slope|``. The fractal
+    dimension follows as ``D = log(R_n) / log(R_l)``.
+
+    The figure-S8 ratios in Eloy et al. 2017 are computed from a
+    :func:`horton_summary` (per-Horton-stream view: ``n_branches`` is the
+    stream count, ``mean_length`` is the per-stream length). A
+    :class:`StrahlerSummary` will also work via duck typing but its
+    ``mean_length`` is per-segment, which is constant in MechaTree, so
+    the recovered ``R_l`` collapses to 1.
+
+    ``drop_top=True`` (default) excludes the highest rank because
+    ``N_W = 1`` by construction (the single root stream), which flattens
+    the bifurcation slope; the means at rank W are also noisy (one data
+    point) so dropping the top rank keeps the four fits anchored to the
+    same support.
+
+    Raises ``ValueError`` if fewer than two ranks remain after the
+    drop_top exclusion and masking of zero counts.
+    """
+    W = summary.max_order
+    if W < 2:
+        raise ValueError(f"need at least 2 Strahler ranks, got {W}")
+    last = W - 1 if drop_top else W
+    if last < 2:
+        raise ValueError(f"need at least 2 usable ranks, got {last} (try drop_top=False)")
+    w_all = np.arange(1, last + 1, dtype=float)
+    counts = summary.n_branches[:last].astype(float)
+    length = summary.mean_length[:last].astype(float)
+    diameter = summary.mean_diameter[:last].astype(float)
+    area = summary.mean_area[:last].astype(float)
+    mask = (counts > 0) & (length > 0) & (diameter > 0) & (area > 0)
+    if int(mask.sum()) < 2:
+        raise ValueError(f"need at least 2 positive-count ranks, got {int(mask.sum())}")
+    w = w_all[mask]
+
+    def slope(y: np.ndarray) -> float:
+        m, _ = np.polyfit(w, np.log10(y[mask]), 1)
+        return float(m)
+
+    R_n = 10.0 ** (-slope(counts))
+    R_l = 10.0 ** slope(length)
+    R_d = 10.0 ** slope(diameter)
+    R_a = 10.0 ** slope(area)
+    D = math.log(R_n) / math.log(R_l)
+    return HortonRatios(R_n=R_n, R_l=R_l, R_d=R_d, R_a=R_a, D=D, fit_orders=w)
+
+
 def leonardo_ratios(tree: PyTree) -> np.ndarray:
     """Area-preservation ratios at each binary branching node.
 
@@ -146,4 +323,13 @@ def tokunaga_matrix(tree: PyTree) -> np.ndarray:
     return T
 
 
-__all__ = ["StrahlerSummary", "leonardo_ratios", "strahler_summary", "tokunaga_matrix"]
+__all__ = [
+    "HortonRatios",
+    "HortonSummary",
+    "StrahlerSummary",
+    "horton_ratios",
+    "horton_summary",
+    "leonardo_ratios",
+    "strahler_summary",
+    "tokunaga_matrix",
+]

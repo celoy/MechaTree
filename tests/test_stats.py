@@ -8,7 +8,15 @@ import pytest
 from mechatree import PyTree
 from mechatree.config import Config
 from mechatree.simulate import grow_tree
-from mechatree.stats import leonardo_ratios, strahler_summary, tokunaga_matrix
+from mechatree.stats import (
+    HortonRatios,
+    HortonSummary,
+    horton_ratios,
+    horton_summary,
+    leonardo_ratios,
+    strahler_summary,
+    tokunaga_matrix,
+)
 
 
 def _balanced_binary_tree(depth: int) -> PyTree:
@@ -119,6 +127,145 @@ def test_tokunaga_matrix_perfect_binary_tree():
     # No "skip-level" side branches in a perfect tree.
     assert T[2, 0] == 0
     assert T[3, 0] == 0
+
+
+def _geometric_summary(W: int, R_n: float, R_l: float, R_d: float) -> HortonSummary:
+    """Build a HortonSummary with exact geometric series across W ranks.
+
+    N_w = R_n**(W-w)  → N_W = 1, N_1 = R_n**(W-1)
+    L_w = R_l**(w-1)
+    d_w = R_d**(w-1)
+    A_w = pi/4 * d_w**2 (so R_a = R_d**2)
+    """
+    w = np.arange(1, W + 1, dtype=float)
+    counts = np.round(R_n ** (W - w)).astype(np.int64)
+    length = R_l ** (w - 1)
+    diameter = R_d ** (w - 1)
+    area = 0.25 * math.pi * diameter * diameter
+    return HortonSummary(
+        n_branches=counts,
+        mean_length=length,
+        mean_diameter=diameter,
+        mean_area=area,
+        total_area=area * counts,
+        max_order=W,
+    )
+
+
+def test_horton_ratios_recovers_geometric_series():
+    """A synthetic summary built from exact geometric series should round-trip
+    through horton_ratios at high precision. Use R_n=2 so counts are exact
+    powers of two (no rounding drift); length / diameter are floats so any
+    ratios work for them."""
+    R_n, R_l, R_d = 2.0, 1.7, 1.9
+    s = _geometric_summary(W=8, R_n=R_n, R_l=R_l, R_d=R_d)
+    h = horton_ratios(s)
+    assert isinstance(h, HortonRatios)
+    assert h.R_n == pytest.approx(R_n, rel=1e-10)
+    assert h.R_l == pytest.approx(R_l, rel=1e-10)
+    assert h.R_d == pytest.approx(R_d, rel=1e-10)
+    assert h.R_a == pytest.approx(R_d**2, rel=1e-10)
+    assert pytest.approx(math.log(R_n) / math.log(R_l), rel=1e-10) == h.D
+    # drop_top=True → fit_orders = 1..W-1
+    assert h.fit_orders.tolist() == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_horton_ratios_paper_targets_close_with_loose_tol():
+    """With paper-target ratios (R_n=3.5, R_l=1.7, R_d=1.9, W=8), integer
+    rounding on N_w introduces ~1% drift in R_n. Confirm recovery at 5%."""
+    R_n, R_l, R_d = 3.5, 1.7, 1.9
+    s = _geometric_summary(W=8, R_n=R_n, R_l=R_l, R_d=R_d)
+    h = horton_ratios(s)
+    assert h.R_n == pytest.approx(R_n, rel=0.05)
+    assert h.R_l == pytest.approx(R_l, rel=1e-10)
+    assert h.R_d == pytest.approx(R_d, rel=1e-10)
+    assert pytest.approx(math.log(R_n) / math.log(R_l), rel=0.05) == h.D
+
+
+def test_horton_ratios_drop_top_false_includes_trunk():
+    """With drop_top=False the rank-W trunk (N_W = 1) flattens the fit;
+    R_n still recovers to the synthetic ratio because counts are exact."""
+    s = _geometric_summary(W=6, R_n=4.0, R_l=2.0, R_d=2.0)
+    h = horton_ratios(s, drop_top=False)
+    assert h.R_n == pytest.approx(4.0, rel=1e-10)
+    assert h.fit_orders.tolist() == [1, 2, 3, 4, 5, 6]
+
+
+def test_horton_ratios_rejects_too_few_ranks():
+    s = _geometric_summary(W=2, R_n=3.0, R_l=1.5, R_d=1.5)
+    # W=2, drop_top=True leaves 1 rank → cannot fit.
+    with pytest.raises(ValueError):
+        horton_ratios(s)
+
+
+def test_horton_summary_refreshes_strahler_on_grown_tree():
+    """Regression: the C++ ``setHorton`` skips ``setStrahler`` when
+    ``Strahler_distribution`` is already populated, which would yield
+    stale Horton labels on a tree that has grown since the last
+    Strahler computation. ``horton_summary`` must defend against this
+    by forcing a fresh ``set_strahler`` first.
+
+    Reproduce by growing one tree in a loop and snapshotting along the
+    way — without the defensive call, every snapshot collapses to the
+    first one's max_order."""
+    cfg = Config()
+    saved = []
+
+    def cb(gen, tree):
+        if gen % 10 == 0:
+            saved.append((gen, horton_summary(tree).max_order))
+
+    grow_tree(cfg, n_generations=80, seed=42, on_step=cb)
+    orders = [m for _, m in saved]
+    # Without the fix, all entries would equal the gen=0 max_order
+    # (typically 1 or 2). With the fix, max_order grows monotonically
+    # over time.
+    assert orders[-1] > orders[0], f"Horton orders never grew: {orders}"
+
+
+def test_horton_summary_perfect_binary_tree():
+    """In a perfect depth-d binary tree the C++ ``setHorton`` rule lets
+    one sibling at every fork inherit the parent's Horton index, so a
+    chain at order w absorbs w consecutive unit segments. Trace by hand
+    for depth=3 (max_order=4) and check both the stream counts and the
+    per-stream mean lengths."""
+    t = _balanced_binary_tree(3)
+    h = horton_summary(t)
+    # Trunk = 1 chain of order 4 (length 4: trunk + inheriting children
+    # down to one leaf). Right child of trunk = 1 new chain of order 3,
+    # length 3. Two new chains of order 2 (each length 2). Four leftover
+    # leaves are their own chains of order 1.
+    assert h.n_branches.tolist() == [4, 2, 1, 1]
+    assert h.mean_length == pytest.approx([1.0, 2.0, 3.0, 4.0])
+
+
+def test_horton_ratios_on_champion_tree_near_paper_values():
+    """Regression: grow the species-0 champion long enough for the
+    Horton stream structure to develop, then assert the recovered ratios
+    land in the neighbourhood of the paper targets (R_n=3.5, R_l=1.7,
+    D=2.3). Bounds are intentionally loose — a single seed has real
+    scatter."""
+    from pathlib import Path
+
+    from mechatree.config import load_config
+    from mechatree.genome import load_champion
+
+    champions = Path(__file__).resolve().parents[1] / "data" / "S3_champions.json"
+    forest_yaml = Path(__file__).resolve().parents[1] / "examples" / "forest.yaml"
+    if not (champions.exists() and forest_yaml.exists()):
+        pytest.skip("S3_champions.json or forest.yaml missing")
+
+    cfg = load_config(forest_yaml)
+    safety, allocation, _ = load_champion(champions, species_id=0)
+    tree = grow_tree(cfg, n_generations=150, seed=42, safety=safety, allocation=allocation)
+    h_summary = horton_summary(tree)
+    if h_summary.max_order < 4:
+        pytest.skip(f"champion tree only reached Horton order {h_summary.max_order}")
+    h = horton_ratios(h_summary)
+    assert 2.0 < h.R_n < 6.0, f"R_n={h.R_n} outside loose window for paper target 3.5"
+    assert 1.2 < h.R_l < 2.5, f"R_l={h.R_l} outside loose window for paper target 1.7"
+    assert 1.2 < h.R_d < 3.0, f"R_d={h.R_d} outside loose window for paper target 1.9"
+    assert 1.5 < h.D < 3.5, f"D={h.D} outside loose window for paper target 2.3"
 
 
 def test_tokunaga_matrix_no_lower_in_upper_triangle():

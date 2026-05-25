@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Notebook 06 (FigS8) + Horton stream stats
+
+- [`notebooks/06_fractal_dimension.ipynb`](notebooks/06_fractal_dimension.ipynb) — reproduces SI Fig. S8 of Eloy et al. 2017 from the species-0 S3 champion. Five panels: 3D mature tree (400 yr), Horton ratios `R_n, R_l, R_d, R_a` and fractal dimension `D = log R_n / log R_l` (open markers = 25 yr juvenile, filled = 400 yr mature), time evolution of those ratios from 0–500 yr, per-segment branch-tapering scatter with 2/3 / 1 / 3/2 reference slopes, and per-bifurcation area-conservation scatter (Leonardo's rule, mean ≈ 0.95).
+- [`mechatree.stats.horton_summary`](src/mechatree/stats.py) + [`HortonSummary`](src/mechatree/stats.py) — per-Horton-stream length / count / diameter / area, mirroring the existing per-segment `strahler_summary`. Needed because every MechaTree segment is a unit twig, so per-segment mean length is identically 1; only the per-Horton-chain length grows with rank.
+- [`mechatree.stats.horton_ratios`](src/mechatree/stats.py) + [`HortonRatios`](src/mechatree/stats.py) — log-linear fit across consecutive Strahler / Horton ranks recovering the four geometric ratios and the fractal dimension. Mirrors `Fractal_dim.m` from the Eloy et al. 2017 MATLAB archive. `drop_top=True` by default to exclude the trunk (where `N_W=1` flattens the slope).
+
+### Fixed — Step 13 follow-up
+
+- [`mechatree.stats.horton_summary`](src/mechatree/stats.py) forces `tree.set_strahler()` before `tree.set_horton()`. The C++ `Tree::setHorton` only calls `setStrahler` when `Strahler_distribution` is empty, so once Strahler is computed it never refreshes — every `on_step` snapshot during `grow_tree` saw stale rank-1 / rank-2 labels and collapsed to `max_order == 2`. Regression test at [`tests/test_stats.py::test_horton_summary_refreshes_strahler_on_grown_tree`](tests/test_stats.py).
+
 ### Added — Step 15: SymPy-callable genome
 
 - [`mechatree._core.PyCallbackSafety`](src/mechatree/_core/_core.pyx) / `PyCallbackAllocation` — new Cython wrappers around C++ `CallbackSafety` / `CallbackAllocation` vtable subclasses. Each holds a Python callable; the Cython shims (`_safety_callback` / `_allocation_callback`) marshal `(nb_leaves, max_stress)` / `(nb_leaves, vol_relative)` back into Python under `with gil` so the C++ growth loop can call arbitrary Python decision functions. Errors raised by the callback fall back to `0` and log to stderr, since the C++ growth loop has no exception channel.

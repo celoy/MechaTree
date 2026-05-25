@@ -40,3 +40,4 @@ uv run jupyter nbconvert --to notebook --execute --inplace \
 | [03_neural_genome.ipynb](03_neural_genome.ipynb) | [grow_one_tree.py](../examples/grow_one_tree.py) | Compare the default constant genome against the two S3 champions from Eloy et al. 2017. |
 | [04_custom_growth_law.ipynb](04_custom_growth_law.ipynb) | [custom_simulation.py](../examples/custom_simulation.py) | Plug in user-supplied `wind_fn`, `Sun`, `ConstantSafety`, `ConstantAllocation`. |
 | [05_strahler_diagnostics.ipynb](05_strahler_diagnostics.ipynb) | [plot_strahler.py](../examples/plot_strahler.py) | Grow a mature tree, read off Horton-Strahler scaling, Leonardo's rule, Tokunaga matrix. |
+| [06_fractal_dimension.ipynb](06_fractal_dimension.ipynb) | — | Reproduce SI Fig. S8 of Eloy et al. 2017 from one of the S3 champions: 3D tree, Horton ratios `R_n, R_l, R_d, R_a, D`, time evolution, branch tapering, area conservation. |
