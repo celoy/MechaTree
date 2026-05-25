@@ -18,6 +18,7 @@ from __future__ import annotations
 from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
+from mechatree import evolution
 from mechatree._core import PyTree
 from mechatree.config import (
     Config,
@@ -28,6 +29,7 @@ from mechatree.config import (
     WindConfig,
     load_config,
 )
+from mechatree.evolution import ForestEvolutionResult, Genome, run_tournament
 from mechatree.forest import Forest, ForestStats
 from mechatree.genome import (
     AllocationModel,
@@ -116,7 +118,9 @@ __all__ = [
     "DendroFlowWindParams",
     "Forest",
     "ForestConfig",
+    "ForestEvolutionResult",
     "ForestStats",
+    "Genome",
     "GenomeConfig",
     "HortonRatios",
     "HortonSummary",
@@ -134,6 +138,7 @@ __all__ = [
     "__version__",
     "champion_angles",
     "distance_to_leaves",
+    "evolution",
     "figstyle",
     "grow_tree",
     "horton_ratios",
@@ -154,6 +159,7 @@ __all__ = [
     "plot_self_thinning",
     "plot_strahler_diagnostics",
     "plot_tree_3d",
+    "run_tournament",
     "strahler_summary",
     "tokunaga_matrix",
 ]

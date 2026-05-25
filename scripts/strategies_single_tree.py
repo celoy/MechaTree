@@ -41,6 +41,11 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Step 21: the 2-cluster k-means + gap-threshold logic now lives in
+# ``mechatree.evolution.curate`` so the new tournament runner can share
+# this implementation. The script keeps its CLI surface unchanged.
+from mechatree.evolution.curate import detect_species, kmeans2  # noqa: F401
+
 DEFAULT_DAT = Path("/Users/Ch/Documents/Arbres/FORTRAN/ART_Analysis_LAD/S3.dat")
 DEFAULT_DATA_DIR = Path(__file__).parent.parent / "data"
 DEFAULT_JSON = DEFAULT_DATA_DIR / "S3_champions.json"
@@ -104,38 +109,6 @@ def neural_reserve(
     pleaves = np.where(over, pleaves / np.where(over, s, 1.0), pleaves)
     pseeds = np.where(over, pseeds / np.where(over, s, 1.0), pseeds)
     return pseeds, pleaves, phototro
-
-
-# --------- species detection ---------
-
-
-def kmeans2(points: np.ndarray, n_iter: int = 50) -> tuple[np.ndarray, np.ndarray]:
-    """Tiny 2-cluster k-means with farthest-point init. Returns (labels, centroids)."""
-    c0 = points[0]
-    c1 = points[np.argmax(np.linalg.norm(points - c0, axis=1))]
-    centroids = np.stack([c0, c1])
-    labels = np.zeros(len(points), dtype=int)
-    for _ in range(n_iter):
-        d = np.linalg.norm(points[:, None, :] - centroids[None, :, :], axis=2)
-        new_labels = d.argmin(axis=1)
-        if np.array_equal(new_labels, labels):
-            break
-        labels = new_labels
-        for k in (0, 1):
-            members = points[labels == k]
-            if len(members):
-                centroids[k] = members.mean(axis=0)
-    return labels, centroids
-
-
-def detect_species(
-    tag_genes: np.ndarray, gap_threshold: float = 0.15
-) -> tuple[np.ndarray, np.ndarray]:
-    """Cluster into 1 or 2 species. Collapses to 1 if the centroid gap is below threshold."""
-    labels, centroids = kmeans2(tag_genes)
-    if np.linalg.norm(centroids[0] - centroids[1]) < gap_threshold:
-        return np.zeros(len(tag_genes), dtype=int), tag_genes.mean(axis=0, keepdims=True)
-    return labels, centroids
 
 
 # --------- build phase: .dat -> JSON ---------

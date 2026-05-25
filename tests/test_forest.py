@@ -260,15 +260,18 @@ def test_run_progresses_state():
 # ---------------------------------------------------------------------------
 
 
-def test_zero_wind_no_pruning_more_branches():
-    """Zero wind preserves branches; default wind storms cull them.
+def test_zero_wind_no_pruning():
+    """Zero wind ⇒ stress = 0 on every branch ⇒ no pruning *ever*.
 
-    Run for enough generations on enough trees that the storm-vs-quiet
-    branch-count signal dominates any cross-platform RNG / floating-point
-    drift. At 8 gens × 3 saplings the storm had barely pruned anything yet,
-    so a 2-branch Windows-vs-macOS RNG delta could flip the comparison
-    (observed on CI: quiet=306, stormy=308). 20 gens × 8 trees produces
-    a stable ~300-branch margin in the expected direction.
+    The previous version compared total branches across two stochastic
+    runs and asserted a direction. Both runs share ``seed=42`` but
+    diverge because the default storm ``wind_fn`` consumes ``rng.random``
+    calls that ``zero_wind`` doesn't — so the rest of the simulation
+    (births, dispersal, deaths) takes different RNG paths. With a small
+    forest the resulting signal was smaller than cross-platform
+    floating-point drift in the C++ random core, flipping the
+    comparison on Linux / Windows builds. We now check the direct
+    invariant via ``ForestStats.n_pruned_total``.
     """
     cfg = _small_config(n_trees_init=8, n_trees_max=100, size=30.0, max_age=1000)
 
@@ -276,16 +279,31 @@ def test_zero_wind_no_pruning_more_branches():
         return (0.0, 0.0, 0.0)
 
     f_quiet = Forest(cfg, seed=42, wind_fn=zero_wind)
-    f_stormy = Forest(cfg, seed=42)
+    quiet_pruned = 0
     for gen in range(20):
-        f_quiet.step(gen)
-        f_stormy.step(gen)
-    branches_quiet = sum(t.get_number_of_branches() for t in f_quiet.trees)
-    branches_stormy = sum(t.get_number_of_branches() for t in f_stormy.trees)
-    assert branches_quiet > branches_stormy, (
-        f"expected zero-wind run to keep more branches than the storm run, "
-        f"got quiet={branches_quiet} stormy={branches_stormy}"
-    )
+        stats = f_quiet.step(gen)
+        quiet_pruned += stats.n_pruned_total
+    assert quiet_pruned == 0, f"expected no pruning under zero wind, got {quiet_pruned}"
+
+
+def test_strong_wind_prunes():
+    """Sanity counterpart to :func:`test_zero_wind_no_pruning`: a strong
+    deterministic wind must prune *something* within a short run.
+
+    Uses a fixed-amplitude (5.0) westerly so the test doesn't depend on
+    the stochastic default storm wind — that path can leave a small
+    forest untouched for ~30 gens by chance.
+    """
+    cfg = _small_config(n_trees_init=8, n_trees_max=100, size=30.0, max_age=1000)
+
+    def strong_wind(gen, rng):
+        return (5.0, 0.0, 0.0)
+
+    f = Forest(cfg, seed=42, wind_fn=strong_wind)
+    pruned_total = 0
+    for gen in range(20):
+        pruned_total += f.step(gen).n_pruned_total
+    assert pruned_total > 0, f"expected strong wind to prune something, got {pruned_total}"
 
 
 # ---------------------------------------------------------------------------

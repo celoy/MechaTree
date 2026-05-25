@@ -4,9 +4,11 @@ Mirrors ``legacy_fortran/Forest.f90``'s main loop. Cross-tree light
 competition falls out of the Step-10 light module operating on the union
 of every tree's leaves — no special-case code needed.
 
-Per the design principles in CLAUDE.md ("evolution is external"), every
-tree in a single Forest shares the same Safety / Allocation models.
-Per-tree genome variation comes later when a real Genome class lands.
+By default every tree in a Forest shares the same Safety / Allocation
+models (the Step-12 behaviour). Step 21 added an opt-in evolution path:
+pass ``genomes=[Genome, ...]`` and each tree dispatches through its own
+heritable :class:`~mechatree.evolution.Genome`, with seeds inheriting a
+mutated copy at birth. See :func:`mechatree.evolution.run_tournament`.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -25,6 +28,9 @@ from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
 from mechatree.mechanics import calculate_stresses
 from mechatree.pruning import prune
 from mechatree.simulate import _callback_arity, _resolve_wind_fn
+
+if TYPE_CHECKING:
+    from mechatree.evolution.genome import Genome
 
 # See ``mechatree.simulate.WindFn`` for the two accepted arities.
 WindFn = Callable[..., tuple[float, float, float]]
@@ -46,6 +52,14 @@ class ForestStats:
     biomass_total: float  # sum of branch volumes
     n_born: int
     n_died: int
+    # Total branches cut by ``prune`` across all trees this generation
+    # (including every descendant of any directly-cut branch). 0 under
+    # zero wind; the storm-driven "self-thinning" signal lives here.
+    n_pruned_total: int = 0
+    # Number of unique ``Genome.lineage_id`` values across surviving trees.
+    # 0 when evolution is not active (``Forest.genomes is None``). The natural
+    # diagnostic for "a species disappears when no descendant carries it".
+    n_lineages_alive: int = 0
 
 
 def _make_forest_tree(
@@ -74,6 +88,11 @@ class Forest:
 
     Construct with ``Forest(config, seed=...)`` and either call ``run(n)``
     or drive the loop manually with ``step(generation)``.
+
+    Pass ``genomes=[Genome, ...]`` (length ``config.forest.n_trees_init``)
+    to opt into per-tree evolution (Step 21): each tree dispatches through
+    its own :class:`~mechatree.evolution.Genome` and seeds inherit a
+    mutated copy of the parent's genome.
     """
 
     config: Config
@@ -82,6 +101,12 @@ class Forest:
     allocation: AllocationModel | None = None
     sun: Sun | None = None
     wind_fn: WindFn | None = None
+    # Step 21: opt-in evolution. When provided, ``self.safety`` /
+    # ``self.allocation`` are ignored; each tree's growth dispatches
+    # through ``genomes[i].to_models()`` and seeds inherit a mutated copy.
+    genomes: list[Genome] | None = None
+    mutation_sigma: float = 0.005
+    mutation_p_locus: float = 0.05
 
     # Populated by __post_init__ / step.
     rng: np.random.Generator = field(init=False, repr=False)
@@ -114,6 +139,11 @@ class Forest:
                 n_elevations=lc.n_elevations,
                 n_azimuths=lc.n_azimuths,
                 size_leaf=lc.size_leaf,
+            )
+        if self.genomes is not None and len(self.genomes) != self.config.forest.n_trees_init:
+            raise ValueError(
+                f"genomes length {len(self.genomes)} != config.forest.n_trees_init "
+                f"{self.config.forest.n_trees_init}"
             )
         self._init_population()
 
@@ -170,9 +200,13 @@ class Forest:
             aggregate_onto_trees(leaves, self.trees)
 
         # 2. Per-tree mechanics + growth.
-        for tree in self.trees:
+        for i, tree in enumerate(self.trees):
             calculate_stresses(tree, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy)
-            requested_growth(tree, self.safety, maintenance_h=tree_cfg.maintenance_h)
+            if self.genomes is not None:
+                safety_model = self.genomes[i].to_models()[0]
+            else:
+                safety_model = self.safety
+            requested_growth(tree, safety_model, maintenance_h=tree_cfg.maintenance_h)
             secondary_growth(tree, volume_per_leaf=volume_per_leaf)
 
         # 3. Pruning under a common wind.
@@ -180,8 +214,11 @@ class Forest:
             wind = self.wind_fn(generation, self.rng, self)
         else:
             wind = self.wind_fn(generation, self.rng)
+        n_pruned_total = 0
         for tree in self.trees:
-            prune(tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy)
+            n_pruned_total += prune(
+                tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy
+            )
             tree.reorder()
             # Optional: fuse single-child parent->child chains left by pruning
             # into one straight segment (bottom/top + total volume kept).
@@ -201,15 +238,21 @@ class Forest:
         n_died = 0
         survivors_trees: list[PyTree] = []
         survivors_ages: list[int] = []
-        for tree, age in zip(self.trees, self.ages, strict=True):
+        survivors_genomes: list[Genome] | None = [] if self.genomes is not None else None
+        prior_genomes = self.genomes if self.genomes is not None else None
+        for i, (tree, age) in enumerate(zip(self.trees, self.ages, strict=True)):
             new_age = age + 1
             if self._is_dead(tree, new_age, forest_cfg):
                 n_died += 1
                 continue
             survivors_trees.append(tree)
             survivors_ages.append(new_age)
+            if survivors_genomes is not None and prior_genomes is not None:
+                survivors_genomes.append(prior_genomes[i])
         self.trees = survivors_trees
         self.ages = survivors_ages
+        if survivors_genomes is not None:
+            self.genomes = survivors_genomes
 
         # 5. Primary growth + seed dispersal.
         n_born = self._grow_and_disperse(generation, volume_twig)
@@ -219,6 +262,9 @@ class Forest:
         n_leaves_total = sum(t.get_total_leaves() for t in self.trees)
         n_big = sum(1 for t in self.trees if t.get_number_of_branches() > 10)
         biomass = self._biomass()
+        n_lineages_alive = (
+            len({g.lineage_id for g in self.genomes}) if self.genomes is not None else 0
+        )
         return ForestStats(
             generation=generation,
             n_trees=len(self.trees),
@@ -228,6 +274,8 @@ class Forest:
             biomass_total=biomass,
             n_born=n_born,
             n_died=n_died,
+            n_pruned_total=n_pruned_total,
+            n_lineages_alive=n_lineages_alive,
         )
 
     def run(self, n_generations: int, on_step: OnStep | None = None) -> None:
@@ -256,28 +304,43 @@ class Forest:
 
         Mirrors ``Forest.f90:304-329``. The seed count comes from the same
         allocation-model formula used in Step 11.
+
+        When ``self.genomes is not None`` (evolution mode), the per-tree
+        allocation model + branching angles come from each tree's
+        :class:`~mechatree.evolution.Genome`, and each seedling inherits
+        a mutated copy of the parent's genome.
         """
         tree_cfg = self.config.tree
         forest_cfg = self.config.forest
         size_sq = forest_cfg.size**2
+        evolving = self.genomes is not None
 
         # Snapshot reserves BEFORE primary_growth so the seed count uses the
         # pre-call R0, matching the Fortran's energy book-keeping.
-        seedlings: list[tuple[float, float, float]] = []
-        for tree in self.trees:
+        seedlings: list[tuple[float, float, float, Genome | None]] = []
+        for i, tree in enumerate(self.trees):
             reserve_before = tree.get_reserve()
             n_leaves_before = tree.get_total_leaves()
 
+            if evolving:
+                allocation_model = self.genomes[i].to_models()[1]
+                tree_angles = self.genomes[i].tree_angles()
+            else:
+                allocation_model = self.allocation
+                tree_angles = {
+                    "theta1": tree_cfg.theta1,
+                    "theta2": tree_cfg.theta2,
+                    "gamma1": tree_cfg.gamma1,
+                    "gamma2": tree_cfg.gamma2,
+                }
+
             primary_growth(
                 tree,
-                self.allocation,
+                allocation_model,
                 twig_length=tree_cfg.twig_length,
                 twig_diameter=tree_cfg.twig_diameter,
-                theta1=tree_cfg.theta1,
-                theta2=tree_cfg.theta2,
-                gamma1=tree_cfg.gamma1,
-                gamma2=tree_cfg.gamma2,
                 generation=generation,
+                **tree_angles,
             )
 
             if n_leaves_before <= 0 or reserve_before <= 0.0:
@@ -285,7 +348,7 @@ class Forest:
                 continue
 
             vol_relative = reserve_before / n_leaves_before / volume_twig
-            p_seeds, _, _ = self.allocation.compute(n_leaves_before, vol_relative)
+            p_seeds, _, _ = allocation_model.compute(n_leaves_before, vol_relative)
             n_seeds = int(math.floor(p_seeds * reserve_before / (5.0 * volume_twig)))
             tree.set_reserve(max(0.0, tree.get_reserve() - 5.0 * volume_twig * n_seeds))
             tree.reorder()
@@ -302,6 +365,7 @@ class Forest:
                 continue
             picks = self.rng.integers(0, len(leaf_idxs), size=n_seeds)
             flight_angles = self.rng.random(size=(n_seeds, 2)) * 2.0 * math.pi
+            parent_genome = self.genomes[i] if evolving else None
             for j in range(n_seeds):
                 leaf_idx = leaf_idxs[int(picks[j])]
                 base = tree.get_location(leaf_idx)
@@ -312,11 +376,20 @@ class Forest:
                 lx = base[0] + dx
                 ly = base[1] + dy
                 if lx * lx + ly * ly < size_sq:
-                    seedlings.append((lx, ly, float(flight_angles[j, 1])))
+                    child_genome = (
+                        parent_genome.mutate(
+                            self.rng,
+                            sigma=self.mutation_sigma,
+                            p_locus=self.mutation_p_locus,
+                        )
+                        if parent_genome is not None
+                        else None
+                    )
+                    seedlings.append((lx, ly, float(flight_angles[j, 1]), child_genome))
 
         # Spawn the surviving seedlings.
         n_born = 0
-        for lx, ly, ang in seedlings:
+        for lx, ly, ang, child_genome in seedlings:
             if len(self.trees) >= forest_cfg.n_trees_max:
                 break
             tree = _make_forest_tree(
@@ -324,6 +397,8 @@ class Forest:
             )
             self.trees.append(tree)
             self.ages.append(0)
+            if self.genomes is not None and child_genome is not None:
+                self.genomes.append(child_genome)
             n_born += 1
         return n_born
 
