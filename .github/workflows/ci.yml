@@ -22,11 +22,18 @@ jobs:
       - name: Install package
         run: uv pip install -e ".[dev]"
 
+      # ``uv run`` does an implicit ``uv sync --frozen`` first, which
+      # validates every entry in uv.lock — including the editable
+      # ``../DendroFlow`` source (gated on ``extra = "dendroflow"``). On
+      # CI that sibling checkout does not exist, so the sync errors out
+      # even though dendroflow is not in the ``dev`` extra. ``--no-sync``
+      # skips the validation and runs ruff directly in the venv we just
+      # populated by ``uv pip install`` above.
       - name: Ruff check
-        run: uv run ruff check .
+        run: uv run --no-sync ruff check .
 
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run --no-sync ruff format --check .
 
   test:
     needs: lint
@@ -53,4 +60,4 @@ jobs:
         run: uv pip install -e ".[dev]"
 
       - name: Test
-        run: uv run pytest
+        run: uv run --no-sync pytest
