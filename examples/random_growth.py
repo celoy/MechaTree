@@ -14,13 +14,12 @@ import random
 
 import numpy as np
 
-from mechatree import PyTree
-from mechatree.plotting import plot_3d
+import mechatree as mt
 
 
-def run(n_generations: int, p_remove: float = 0.05, max_children: int = 4) -> PyTree:
+def run(n_generations: int, p_remove: float = 0.05, max_children: int = 4) -> mt.PyTree:
     trunk = {"x": 0, "y": 0, "z": 0, "theta": 0, "phi": 0}
-    tree = PyTree(trunk)
+    tree = mt.PyTree(trunk)
 
     for _ in range(n_generations):
         n_branches = tree.get_number_of_branches()
@@ -64,7 +63,7 @@ def main() -> None:
     tree = run(args.iterations)
     print(f"Final tree size: {tree.get_number_of_branches()}")
 
-    fig = plot_3d(tree)
+    fig = mt.plot_3d(tree)
     if not args.no_show:
         fig.show()
 

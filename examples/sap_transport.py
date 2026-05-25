@@ -16,17 +16,17 @@ import math
 import random
 import sys
 
-from mechatree import PyTree
+import mechatree as mt
 
 
-def increment_volume(tree: PyTree, index: int) -> None:
+def increment_volume(tree: mt.PyTree, index: int) -> None:
     if index < tree.get_number_of_branches():
         tree.set_property(index, "volume", tree.get_property(index, "volume") + 1)
         if tree.has_parent(index) == 1:
             increment_volume(tree, tree.get_parent_index(index))
 
 
-def run(sim_time: int, alpha: float = 2.0, cost: float = 1.0) -> PyTree | None:
+def run(sim_time: int, alpha: float = 2.0, cost: float = 1.0) -> mt.PyTree | None:
     trunk = {
         "x": 1e-6,
         "y": 1e-6,
@@ -36,7 +36,7 @@ def run(sim_time: int, alpha: float = 2.0, cost: float = 1.0) -> PyTree | None:
         "production": 10,
         "leaf": 1,
     }
-    tree = PyTree(trunk)
+    tree = mt.PyTree(trunk)
 
     for _t in range(sim_time):
         # Leaves -> trunk.

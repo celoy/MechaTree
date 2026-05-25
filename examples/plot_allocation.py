@@ -18,9 +18,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mechatree.config import load_config
-from mechatree.plotting import plot_allocation
-from mechatree.simulate import grow_tree
+import mechatree as mt
 
 
 def main() -> None:
@@ -36,14 +34,14 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = mt.load_config(args.config)
 
     history = []  # list of TreeStats
 
     def on_step(_gen, _tree, stats):
         history.append(stats)
 
-    grow_tree(cfg, n_generations=args.iterations, seed=args.seed, on_step=on_step)
+    mt.grow_tree(cfg, n_generations=args.iterations, seed=args.seed, on_step=on_step)
 
     print(f"{'gen':>4}  {'branches':>8}  {'wind':>6}  {'seeds':>5}  {'pruned':>6}  {'reserve':>8}")
     for stats in history:
@@ -56,7 +54,7 @@ def main() -> None:
             )
 
     if not args.no_show:
-        fig = plot_allocation(history, volume_twig=cfg.tree.volume_twig)
+        fig = mt.plot_allocation(history, volume_twig=cfg.tree.volume_twig)
         fig.show()
 
 

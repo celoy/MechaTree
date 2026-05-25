@@ -32,11 +32,7 @@ from pathlib import Path
 
 import numpy as np
 
-from mechatree.config import load_config
-from mechatree.genome import ConstantAllocation, ConstantSafety
-from mechatree.light import Sun
-from mechatree.plotting import plot_tree_3d
-from mechatree.simulate import grow_tree
+import mechatree as mt
 
 
 def steady_west_wind(generation: int, rng: np.random.Generator) -> tuple[float, float, float]:
@@ -64,17 +60,17 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true", help="Skip opening the plotly figure.")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = mt.load_config(args.config)
     print(f"Running 3 simulations side-by-side, {args.iterations} gens each.\n")
 
     # 1. Default — Fortran storm wind, default sun, default genome.
-    t_default = grow_tree(cfg, n_generations=args.iterations, seed=args.seed)
+    t_default = mt.grow_tree(cfg, n_generations=args.iterations, seed=args.seed)
 
     # 2. Steady west wind + overhead sun + "save your reserves" genome.
-    overhead_sun = Sun.from_arrays(elev=[0.1, 0.4], azim=[0.0, math.pi])
-    cautious_safety = ConstantSafety(2.0)  # more growth headroom per stress unit
-    save_reserves = ConstantAllocation(p_seeds=0.0, p_leaves=0.3, phototropism=0.5)
-    t_steady = grow_tree(
+    overhead_sun = mt.Sun.from_arrays(elev=[0.1, 0.4], azim=[0.0, math.pi])
+    cautious_safety = mt.ConstantSafety(2.0)  # more growth headroom per stress unit
+    save_reserves = mt.ConstantAllocation(p_seeds=0.0, p_leaves=0.3, phototropism=0.5)
+    t_steady = mt.grow_tree(
         cfg,
         n_generations=args.iterations,
         seed=args.seed,
@@ -85,7 +81,7 @@ def main() -> None:
     )
 
     # 3. Calm-then-storm — same default genome, but a delayed wind event.
-    t_late_storm = grow_tree(
+    t_late_storm = mt.grow_tree(
         cfg, n_generations=args.iterations, seed=args.seed, wind_fn=storm_at_gen_50
     )
 
@@ -117,7 +113,7 @@ def main() -> None:
             subplot_titles=[label for label, _ in scenarios],
         )
         for col, (_, tree) in enumerate(scenarios, start=1):
-            for trace in plot_tree_3d(tree).data:
+            for trace in mt.plot_tree_3d(tree).data:
                 fig.add_trace(trace, row=1, col=col)
         fig.update_layout(width=1500, height=550, paper_bgcolor="white")
         fig.show()

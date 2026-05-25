@@ -1,5 +1,6 @@
+import numpy as np
 import pytest
-from plotly.graph_objs import Figure
+from plotly.graph_objs import Figure, Mesh3d
 
 from mechatree import PyTree
 from mechatree.config import Config, ForestConfig
@@ -13,6 +14,7 @@ from mechatree.plotting import (
     plot_strahler_diagnostics,
     plot_tree_3d,
 )
+from mechatree.plotting._mechanics import _cylinder_mesh
 from mechatree.simulate import TreeStats, grow_tree
 
 
@@ -79,6 +81,60 @@ def test_plot_tree_3d_handles_empty_tree():
     tree = PyTree({})
     fig = plot_tree_3d(tree)
     assert isinstance(fig, Figure)
+
+
+def test_plot_tree_3d_cylinder_style(grown_tree):
+    fig = plot_tree_3d(grown_tree, style="cylinders")
+    assert isinstance(fig, Figure)
+    meshes = [tr for tr in fig.data if isinstance(tr, Mesh3d)]
+    assert meshes, "expected at least one Mesh3d trace in cylinder mode"
+    # Vertices and faces should be populated.
+    assert len(meshes[0].x) > 0
+    assert len(meshes[0].i) > 0
+
+
+def test_plot_tree_3d_cylinder_handles_empty_tree():
+    tree = PyTree({})
+    fig = plot_tree_3d(tree, style="cylinders")
+    assert isinstance(fig, Figure)
+
+
+def test_plot_tree_3d_invalid_style():
+    tree = PyTree({})
+    with pytest.raises(ValueError):
+        plot_tree_3d(tree, style="bogus")
+
+
+def test_cylinder_mesh_shapes():
+    starts = np.array([[0.0, 0.0, 0.0]])
+    ends = np.array([[0.0, 0.0, 1.0]])
+    r_base = np.array([0.5])
+    r_top = np.array([0.2])
+    n_sides = 8
+    verts, i, j, k = _cylinder_mesh(starts, ends, r_base, r_top, n_sides=n_sides)
+    assert verts.shape == (2 * n_sides, 3)
+    expected_tris = 2 * n_sides
+    assert i.shape == (expected_tris,)
+    assert j.shape == (expected_tris,)
+    assert k.shape == (expected_tris,)
+    # Indices stay within vertex range.
+    n_verts = verts.shape[0]
+    assert int(i.max()) < n_verts and int(j.max()) < n_verts and int(k.max()) < n_verts
+    assert int(i.min()) >= 0 and int(j.min()) >= 0 and int(k.min()) >= 0
+    # Bottom ring sits at z=0, top ring at z=1; radii match.
+    bottom_xy = verts[:n_sides, :2]
+    top_xy = verts[n_sides:, :2]
+    np.testing.assert_allclose(np.linalg.norm(bottom_xy, axis=1), 0.5, atol=1e-9)
+    np.testing.assert_allclose(np.linalg.norm(top_xy, axis=1), 0.2, atol=1e-9)
+    np.testing.assert_allclose(verts[:n_sides, 2], 0.0, atol=1e-9)
+    np.testing.assert_allclose(verts[n_sides:, 2], 1.0, atol=1e-9)
+
+
+def test_cylinder_mesh_empty_batch():
+    empty = np.empty((0, 3))
+    verts, i, j, k = _cylinder_mesh(empty, empty, np.empty(0), np.empty(0))
+    assert verts.shape == (0, 3)
+    assert i.size == 0 and j.size == 0 and k.size == 0
 
 
 def test_plot_forest_topdown_returns_figure():

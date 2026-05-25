@@ -15,9 +15,8 @@ import math
 import random
 from pathlib import Path
 
-from mechatree import PyTree
-from mechatree.geometry import distance_test
-from mechatree.plotting import plot_2d
+import mechatree as mt
+from mechatree.geometry import distance_test  # not part of the flat surface yet
 
 
 def run(
@@ -28,16 +27,16 @@ def run(
     p_b: float = 0.2,
     mean_angle: float = math.pi / 3,
     std_angle: float = math.pi / 10,
-) -> PyTree:
+) -> mt.PyTree:
     influence_radius = 5 * dL
     L_b = 2 * influence_radius
 
     trunk = {"x": 0, "y": 0, "theta": 1e-6, "L": 2.0, "grow": 1}
-    coral = PyTree(trunk)
+    coral = mt.PyTree(trunk)
 
     for i in range(n_steps):
         if snapshot_every is not None and i % snapshot_every == 0:
-            plot_2d(coral, iteration=i, out_dir=out_dir)
+            mt.plot_2d(coral, iteration=i, out_dir=out_dir)
 
         # Growing loop.
         for n in range(coral.get_number_of_branches()):
@@ -85,7 +84,7 @@ def run(
             n += 1
 
     # Always emit a final snapshot.
-    plot_2d(coral, iteration=n_steps, out_dir=out_dir)
+    mt.plot_2d(coral, iteration=n_steps, out_dir=out_dir)
     return coral
 
 

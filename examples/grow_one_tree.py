@@ -18,9 +18,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mechatree.config import load_config
-from mechatree.plotting import plot_tree_3d
-from mechatree.simulate import grow_tree
+import mechatree as mt
 
 
 def main() -> None:
@@ -36,7 +34,7 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true", help="Skip opening the plotly figure.")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = mt.load_config(args.config)
 
     history = []
 
@@ -46,7 +44,7 @@ def main() -> None:
                 (gen, tree.get_number_of_branches(), tree.get_total_leaves(), tree.get_reserve())
             )
 
-    tree = grow_tree(cfg, n_generations=args.iterations, seed=args.seed, on_step=on_step)
+    tree = mt.grow_tree(cfg, n_generations=args.iterations, seed=args.seed, on_step=on_step)
 
     print(f"Ran {args.iterations} generations, seed={args.seed}")
     print(f"  twig dimensions:  L={cfg.tree.twig_length}, d={cfg.tree.twig_diameter}")
@@ -63,7 +61,7 @@ def main() -> None:
     )
 
     if not args.no_show:
-        fig = plot_tree_3d(tree)
+        fig = mt.plot_tree_3d(tree)
         fig.show()
 
 

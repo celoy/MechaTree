@@ -16,15 +16,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mechatree.config import Config
-from mechatree.simulate import TreeStats, grow_tree
+import mechatree as mt
 
 THIS_DIR = Path(__file__).resolve().parent
 YAML_PATH = THIS_DIR / "sympy_genome.yaml"
 
 
 def main() -> None:
-    cfg = Config.from_yaml(YAML_PATH)
+    cfg = mt.Config.from_yaml(YAML_PATH)
     print("SymPy genome:")
     print(f"  safety:       {cfg.genome.safety!r}")
     print(f"  p_seeds:      {cfg.genome.p_seeds!r}")
@@ -33,7 +32,7 @@ def main() -> None:
     print()
     print(f"{'gen':>4} {'n_br':>6} {'n_lvs':>6} {'reserve':>10}")
 
-    def on_step(gen: int, tree, stats: TreeStats) -> None:
+    def on_step(gen: int, tree, stats: mt.TreeStats) -> None:
         if gen % 10 == 0 or gen == cfg.n_generations - 1:
             print(
                 f"{stats.generation:>4d} "
@@ -42,7 +41,7 @@ def main() -> None:
                 f"{stats.reserve:>10.4f}"
             )
 
-    tree = grow_tree(cfg, seed=42, on_step=on_step)
+    tree = mt.grow_tree(cfg, seed=42, on_step=on_step)
     print()
     print(
         f"final: {tree.get_number_of_branches()} branches, "

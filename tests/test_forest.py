@@ -261,20 +261,31 @@ def test_run_progresses_state():
 
 
 def test_zero_wind_no_pruning_more_branches():
-    """Zero wind preserves branches; default wind storms cull them."""
-    cfg = _small_config(n_trees_init=3, max_age=1000)
+    """Zero wind preserves branches; default wind storms cull them.
+
+    Run for enough generations on enough trees that the storm-vs-quiet
+    branch-count signal dominates any cross-platform RNG / floating-point
+    drift. At 8 gens × 3 saplings the storm had barely pruned anything yet,
+    so a 2-branch Windows-vs-macOS RNG delta could flip the comparison
+    (observed on CI: quiet=306, stormy=308). 20 gens × 8 trees produces
+    a stable ~300-branch margin in the expected direction.
+    """
+    cfg = _small_config(n_trees_init=8, n_trees_max=100, size=30.0, max_age=1000)
 
     def zero_wind(gen, rng):
         return (0.0, 0.0, 0.0)
 
     f_quiet = Forest(cfg, seed=42, wind_fn=zero_wind)
     f_stormy = Forest(cfg, seed=42)
-    for gen in range(8):
+    for gen in range(20):
         f_quiet.step(gen)
         f_stormy.step(gen)
     branches_quiet = sum(t.get_number_of_branches() for t in f_quiet.trees)
     branches_stormy = sum(t.get_number_of_branches() for t in f_stormy.trees)
-    assert branches_quiet >= branches_stormy
+    assert branches_quiet > branches_stormy, (
+        f"expected zero-wind run to keep more branches than the storm run, "
+        f"got quiet={branches_quiet} stormy={branches_stormy}"
+    )
 
 
 # ---------------------------------------------------------------------------

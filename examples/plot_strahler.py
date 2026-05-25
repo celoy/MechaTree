@@ -19,10 +19,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mechatree.config import load_config
-from mechatree.plotting import plot_strahler_diagnostics
-from mechatree.simulate import grow_tree
-from mechatree.stats import leonardo_ratios, strahler_summary, tokunaga_matrix
+import mechatree as mt
 
 
 def main() -> None:
@@ -43,12 +40,12 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    tree = grow_tree(cfg, n_generations=args.iterations, seed=args.seed)
+    cfg = mt.load_config(args.config)
+    tree = mt.grow_tree(cfg, n_generations=args.iterations, seed=args.seed)
 
-    summary = strahler_summary(tree)
-    ratios = leonardo_ratios(tree)
-    T = tokunaga_matrix(tree)
+    summary = mt.strahler_summary(tree)
+    ratios = mt.leonardo_ratios(tree)
+    T = mt.tokunaga_matrix(tree)
 
     print(
         f"Tree: {tree.get_number_of_branches()} branches, Strahler max order = {summary.max_order}"
@@ -75,7 +72,7 @@ def main() -> None:
     print(T)
 
     if not args.no_show:
-        fig = plot_strahler_diagnostics(tree)
+        fig = mt.plot_strahler_diagnostics(tree)
         fig.show()
 
 

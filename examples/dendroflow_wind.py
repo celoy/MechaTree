@@ -17,15 +17,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mechatree.config import Config
-from mechatree.simulate import TreeStats, grow_tree
+import mechatree as mt
 
 THIS_DIR = Path(__file__).resolve().parent
 YAML_PATH = THIS_DIR / "dendroflow_wind.yaml"
 
 
 def main() -> None:
-    cfg = Config.from_yaml(YAML_PATH)
+    cfg = mt.Config.from_yaml(YAML_PATH)
     free_stream_max = max(cfg.wind.U_infty or ())
 
     print(f"DendroFlow wind: U_infty in [{min(cfg.wind.U_infty):.1f}, {free_stream_max:.1f}]")
@@ -33,7 +32,7 @@ def main() -> None:
     print()
     print(f"{'gen':>4} {'n_br':>6} {'n_lvs':>6} {'wind':>8}")
 
-    def on_step(gen: int, tree, stats: TreeStats) -> None:
+    def on_step(gen: int, tree, stats: mt.TreeStats) -> None:
         print(
             f"{stats.generation:>4d} "
             f"{stats.n_branches:>6d} "
@@ -45,7 +44,7 @@ def main() -> None:
             f"canopy mean {stats.wind_amplitude} exceeded free stream {free_stream_max}"
         )
 
-    tree = grow_tree(cfg, seed=42, on_step=on_step)
+    tree = mt.grow_tree(cfg, seed=42, on_step=on_step)
     print()
     print(f"final: {tree.get_number_of_branches()} branches, height ≈ {_height(tree):.2f}")
 

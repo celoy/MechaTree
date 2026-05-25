@@ -18,9 +18,7 @@ import argparse
 from dataclasses import replace
 from pathlib import Path
 
-from mechatree.config import load_config
-from mechatree.forest import Forest
-from mechatree.plotting import plot_self_thinning
+import mechatree as mt
 
 
 def main() -> None:
@@ -39,7 +37,7 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = mt.load_config(args.config)
     cfg = replace(
         cfg,
         forest=replace(
@@ -55,7 +53,7 @@ def main() -> None:
     def on_step(_gen, _forest, stats):
         history.append(stats)
 
-    Forest(cfg, seed=args.seed).run(args.iterations, on_step=on_step)
+    mt.Forest(cfg, seed=args.seed).run(args.iterations, on_step=on_step)
 
     print(f"{'gen':>6}  {'N (trees)':>10}  {'M (biomass)':>12}")
     for stats in history:
@@ -63,7 +61,7 @@ def main() -> None:
             print(f"{stats.generation:>6}  {stats.n_trees:>10}  {stats.biomass_total:>12.3f}")
 
     if not args.no_show:
-        fig = plot_self_thinning(history)
+        fig = mt.plot_self_thinning(history)
         fig.show()
 
 

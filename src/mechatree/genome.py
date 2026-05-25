@@ -237,6 +237,7 @@ __all__ = [
     "NeuralAllocation",
     "NeuralSafety",
     "SafetyModel",
+    "champion_angles",
     "load_all_champions",
     "load_champion",
     "models_from_config",

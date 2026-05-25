@@ -17,7 +17,7 @@ Run with::
     uv run python examples/figstyle_compare.py --no-show     # just print
 
 Pick a winner per group, then flip the corresponding default in
-``src/mechatree/plotting/figstyle.py``:
+``src/mechatree/plotting/mt.figstyle.py``:
 
 - Strahler palette: ``DEFAULT_STRAHLER_CMAP`` (currently ``"jet"``).
 - Font: edit :data:`FONT`.
@@ -33,10 +33,7 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 
-from mechatree.config import load_config
-from mechatree.genome import load_champion
-from mechatree.plotting import figstyle, plot_tree_3d
-from mechatree.simulate import grow_tree
+import mechatree as mt
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -52,17 +49,19 @@ def _sample_curve() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
 def compare_strahler_palettes(*, generations: int = 400, species_id: int = 0) -> go.Figure:
     """Render one species-N champion tree under each Strahler palette."""
-    cfg = load_config(REPO / "examples" / "forest.yaml")
+    cfg = mt.load_config(REPO / "examples" / "forest.yaml")
     from dataclasses import replace
 
-    safety, allocation, angles, _ = load_champion(
+    safety, allocation, angles, _ = mt.load_champion(
         REPO / "data" / "S3_champions.json", species_id=species_id
     )
     cfg = replace(cfg, tree=replace(cfg.tree, **angles))
-    tree = grow_tree(cfg, n_generations=generations, safety=safety, allocation=allocation, seed=0)
+    tree = mt.grow_tree(
+        cfg, n_generations=generations, safety=safety, allocation=allocation, seed=0
+    )
     cmaps = ("jet", "cool", "parula", "rainbow")
 
-    fig = figstyle.subplots(
+    fig = mt.figstyle.subplots(
         size="full",
         aspect=4.0,
         rows=1,
@@ -73,17 +72,17 @@ def compare_strahler_palettes(*, generations: int = 400, species_id: int = 0) ->
 
     # plot_tree_3d builds its own go.Figure under each palette; we copy its
     # traces and scene config into the corresponding subplot.
-    original_cmap = figstyle.get_strahler_cmap()
+    original_cmap = mt.figstyle.get_strahler_cmap()
     try:
         for col, name in enumerate(cmaps, start=1):
-            figstyle.set_strahler_cmap(name)
-            sub_fig = plot_tree_3d(tree, show_leaves=True)
+            mt.figstyle.set_strahler_cmap(name)
+            sub_fig = mt.plot_tree_3d(tree, show_leaves=True)
             for trace in sub_fig.data:
                 fig.add_trace(trace, row=1, col=col)
             scene_key = "scene" if col == 1 else f"scene{col}"
             fig.layout[scene_key].update(sub_fig.layout.scene)
     finally:
-        figstyle.set_strahler_cmap(original_cmap)
+        mt.figstyle.set_strahler_cmap(original_cmap)
 
     fig.update_layout(
         title=f"Strahler palettes (species {species_id}, {generations} yr)",
@@ -101,7 +100,7 @@ def compare_fonts() -> go.Figure:
         ("system-ui", "system-ui, -apple-system, BlinkMacSystemFont, sans-serif"),
     )
 
-    fig = figstyle.subplots(
+    fig = mt.figstyle.subplots(
         size="full",
         aspect=4 / 3,
         rows=2,
@@ -109,7 +108,7 @@ def compare_fonts() -> go.Figure:
         subplot_titles=[label for label, _ in candidates],
     )
     x, ys = _sample_curve()
-    palette = [figstyle.COLORS["red"], figstyle.COLORS["blue"], figstyle.COLORS["grey"]]
+    palette = [mt.figstyle.COLORS["red"], mt.figstyle.COLORS["blue"], mt.figstyle.COLORS["grey"]]
 
     for idx, (_label, stack) in enumerate(candidates):
         row, col = divmod(idx, 2)
@@ -146,14 +145,14 @@ def compare_frames() -> go.Figure:
         ("outside ticks, 4-sided frame", "outside", True),
         ("outside ticks, no top/right", "outside", False),
     )
-    fig = figstyle.subplots(
+    fig = mt.figstyle.subplots(
         size="full",
         aspect=4 / 3,
         rows=2,
         cols=2,
         subplot_titles=[label for label, *_ in cases],
     )
-    palette = [figstyle.COLORS["red"], figstyle.COLORS["blue"], figstyle.COLORS["grey"]]
+    palette = [mt.figstyle.COLORS["red"], mt.figstyle.COLORS["blue"], mt.figstyle.COLORS["grey"]]
     for idx, (_, tick_dir, mirror) in enumerate(cases):
         row, col = divmod(idx, 2)
         row += 1
@@ -191,7 +190,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    figstyle.apply()
+    mt.figstyle.apply()
 
     figs = {
         "strahler": compare_strahler_palettes(

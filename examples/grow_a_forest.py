@@ -22,9 +22,7 @@ import argparse
 from dataclasses import replace
 from pathlib import Path
 
-from mechatree.config import load_config
-from mechatree.forest import Forest
-from mechatree.plotting import figstyle, plot_forest_topdown
+import mechatree as mt
 
 
 def main() -> None:
@@ -43,7 +41,7 @@ def main() -> None:
     parser.add_argument("--no-show", action="store_true", help="Skip opening the plotly figures.")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg = mt.load_config(args.config)
     cfg = replace(
         cfg,
         forest=replace(
@@ -55,7 +53,7 @@ def main() -> None:
     )
 
     history = []  # (gen, n_trees, biomass, n_branches)
-    forest = Forest(cfg, seed=args.seed)
+    forest = mt.Forest(cfg, seed=args.seed)
     print(f"Initial population: {len(forest.trees)} trees on a disk of radius {args.size}")
 
     def on_step(gen, _forest, stats):
@@ -77,7 +75,7 @@ def main() -> None:
     if not args.no_show:
         import plotly.graph_objects as go
 
-        figstyle.apply()
+        mt.figstyle.apply()
 
         # Population & biomass over time (twin y-axis via plotly's yaxis2).
         # The top-down view is opened separately because its equal-scale
@@ -86,13 +84,13 @@ def main() -> None:
         trees_over_time = [h[1] for h in history]
         biomass_over_time = [h[2] for h in history]
 
-        fig_history = figstyle.figure(size="full", aspect=9 / 5)
+        fig_history = mt.figstyle.figure(size="full", aspect=9 / 5)
         fig_history.add_trace(
             go.Scatter(
                 x=gens,
                 y=trees_over_time,
                 name="trees alive",
-                line=dict(color=figstyle.COLORS["green"]),  # noqa: C408
+                line=dict(color=mt.figstyle.COLORS["green"]),  # noqa: C408
                 yaxis="y",
             )
         )
@@ -101,7 +99,7 @@ def main() -> None:
                 x=gens,
                 y=biomass_over_time,
                 name="biomass",
-                line=dict(color=figstyle.COLORS["brown"]),  # noqa: C408
+                line=dict(color=mt.figstyle.COLORS["brown"]),  # noqa: C408
                 yaxis="y2",
             )
         )
@@ -109,19 +107,19 @@ def main() -> None:
             title="Population & biomass over time",
             xaxis_title="generation",
             yaxis=dict(  # noqa: C408
-                title=dict(text="trees alive", font=dict(color=figstyle.COLORS["green"])),  # noqa: C408
-                tickfont=dict(color=figstyle.COLORS["green"]),  # noqa: C408
+                title=dict(text="trees alive", font=dict(color=mt.figstyle.COLORS["green"])),  # noqa: C408
+                tickfont=dict(color=mt.figstyle.COLORS["green"]),  # noqa: C408
             ),
             yaxis2=dict(  # noqa: C408
-                title=dict(text="total biomass", font=dict(color=figstyle.COLORS["brown"])),  # noqa: C408
-                tickfont=dict(color=figstyle.COLORS["brown"]),  # noqa: C408
+                title=dict(text="total biomass", font=dict(color=mt.figstyle.COLORS["brown"])),  # noqa: C408
+                tickfont=dict(color=mt.figstyle.COLORS["brown"]),  # noqa: C408
                 overlaying="y",
                 side="right",
             ),
         )
         fig_history.show()
 
-        fig_top = plot_forest_topdown(forest)
+        fig_top = mt.plot_forest_topdown(forest)
         fig_top.update_layout(title=f"Final stand (n={len(forest.trees)})")
         fig_top.show()
 

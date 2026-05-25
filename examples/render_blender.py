@@ -26,9 +26,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mechatree.config import load_config
-from mechatree.export import to_blender_script
-from mechatree.simulate import grow_tree
+import mechatree as mt
+from mechatree.export import to_blender_script  # not part of the flat surface
 
 
 def main() -> None:
@@ -52,8 +51,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
-    tree = grow_tree(cfg, n_generations=args.iterations, seed=args.seed)
+    cfg = mt.load_config(args.config)
+    tree = mt.grow_tree(cfg, n_generations=args.iterations, seed=args.seed)
     print(
         f"Grew a tree with {tree.get_number_of_branches()} branches "
         f"after {args.iterations} generations."

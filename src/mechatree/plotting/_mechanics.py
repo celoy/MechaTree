@@ -11,6 +11,7 @@ to open a browser tab, or display inline in a Jupyter notebook.
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 import numpy as np
 
@@ -20,6 +21,8 @@ from mechatree.plotting._palette import MAX_STRAHLER
 def plot_tree_3d(
     tree,
     *,
+    style: Literal["lines", "cylinders"] = "lines",
+    n_sides: int = 8,
     max_strahler: int = MAX_STRAHLER,
     width_min: float = 1.0,
     width_max: float = 6.0,
@@ -30,22 +33,37 @@ def plot_tree_3d(
 ):
     """Render a 3D view of a mechanics tree as a plotly figure.
 
-    Branches are grouped by Strahler order — one :class:`Scatter3d` line
-    trace per order, coloured from the fixed rainbow palette. The
-    projection is orthographic and the aspect ratio matches the data, so
-    the tree isn't visually distorted.
+    Branches are grouped by Strahler order — one trace per order, coloured
+    from the active :func:`figstyle.strahler_color` palette. The projection
+    is orthographic and the aspect ratio matches the data.
+
+    Two render modes are available via ``style``:
+
+    - ``"lines"`` (default, fast) — branches are pixel-width
+      :class:`Scatter3d` lines bucketed by Strahler order; thickness is set
+      from the order's median diameter via ``width_min``/``width_max``.
+    - ``"cylinders"`` — each branch is extruded as a tapered :class:`Mesh3d`
+      cylinder going from the parent's diameter at the base to its own
+      diameter at the tip. Slower (each branch carries ``2 * n_sides``
+      vertices) but matches the Blender renders in Eloy et al. 2017.
 
     Parameters
     ----------
     tree
         A :class:`PyTree` whose branches have typed mechanics fields set
         (as produced by :func:`mechatree.simulate.grow_tree`).
+    style
+        ``"lines"`` (default) or ``"cylinders"`` — see above.
+    n_sides
+        Polygon sides per cylinder when ``style="cylinders"``. Ignored for
+        ``"lines"``.
     max_strahler
         Highest Strahler order assumed to occur in any tree. A branch
         with Strahler ``max_strahler`` always renders as red; smaller
         trees just don't use the top buckets.
     width_min, width_max
-        Plotly line widths for the thinnest and thickest branch.
+        Plotly line widths for the thinnest and thickest branch. Used by
+        ``style="lines"`` only.
     show_leaves
         If ``True``, scatter leaves at branch tips with size and alpha
         linear in absorbed light (recomputed once via the light module).
@@ -66,6 +84,9 @@ def plot_tree_3d(
 
     from mechatree.plotting import figstyle
 
+    if style not in ("lines", "cylinders"):
+        raise ValueError(f"style must be 'lines' or 'cylinders', got {style!r}")
+
     leaf_color = leaf_color if leaf_color is not None else figstyle.COLORS["green"]
 
     n = tree.get_number_of_branches()
@@ -78,6 +99,7 @@ def plot_tree_3d(
     starts = np.empty((n, 3), dtype=np.float64)
     ends = np.empty((n, 3), dtype=np.float64)
     diameters = np.empty(n, dtype=np.float64)
+    parent_diameters = np.empty(n, dtype=np.float64)
     strahler = np.empty(n, dtype=np.int32)
     for i in range(n):
         x, y, z = tree.get_location(i)
@@ -86,37 +108,73 @@ def plot_tree_3d(
         starts[i] = (x, y, z)
         ends[i] = (x + L * tx, y + L * ty, z + L * tz)
         diameters[i] = tree.get_diameter(i)
+        parent = tree.get_parent_index(i)
+        # Trunk (parent == -1) tapers from its own diameter to its own diameter
+        # — i.e. a straight cylinder. Children inherit their parent's tip
+        # diameter at their base, so the trunk-to-canopy taper is smooth.
+        parent_diameters[i] = diameters[i] if parent < 0 else tree.get_diameter(parent)
         strahler[i] = tree.get_strahler(i)
 
-    d_max = max(float(diameters.max()), 1e-6)
-
-    # One trace per Strahler order — plotly's Scatter3d only takes a single
-    # line.color per trace, so this is the natural grouping.
-    for order in np.unique(strahler):
-        mask = strahler == order
-        xs: list[float | None] = []
-        ys: list[float | None] = []
-        zs: list[float | None] = []
-        for s, e in zip(starts[mask], ends[mask], strict=True):
-            xs.extend([float(s[0]), float(e[0]), None])
-            ys.extend([float(s[1]), float(e[1]), None])
-            zs.extend([float(s[2]), float(e[2]), None])
-        # One representative width per order, taken from the median diameter
-        # in that bucket (so the trunk reads thick, twigs thin).
-        d_bucket = float(np.median(diameters[mask])) if diameters[mask].size else 0.0
-        width = width_min + (width_max - width_min) * (d_bucket / d_max)
-        fig.add_trace(
-            go.Scatter3d(
-                x=xs,
-                y=ys,
-                z=zs,
-                mode="lines",
-                line=dict(color=figstyle.strahler_color(int(order)), width=width),  # noqa: C408
-                name=f"Strahler {int(order)}",
-                hoverinfo="skip",
-                showlegend=False,
+    if style == "lines":
+        d_max = max(float(diameters.max()), 1e-6)
+        # One trace per Strahler order — plotly's Scatter3d only takes a single
+        # line.color per trace, so this is the natural grouping.
+        for order in np.unique(strahler):
+            mask = strahler == order
+            xs: list[float | None] = []
+            ys: list[float | None] = []
+            zs: list[float | None] = []
+            for s, e in zip(starts[mask], ends[mask], strict=True):
+                xs.extend([float(s[0]), float(e[0]), None])
+                ys.extend([float(s[1]), float(e[1]), None])
+                zs.extend([float(s[2]), float(e[2]), None])
+            # One representative width per order, taken from the median diameter
+            # in that bucket (so the trunk reads thick, twigs thin).
+            d_bucket = float(np.median(diameters[mask])) if diameters[mask].size else 0.0
+            width = width_min + (width_max - width_min) * (d_bucket / d_max)
+            fig.add_trace(
+                go.Scatter3d(
+                    x=xs,
+                    y=ys,
+                    z=zs,
+                    mode="lines",
+                    line=dict(color=figstyle.strahler_color(int(order)), width=width),  # noqa: C408
+                    name=f"Strahler {int(order)}",
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
             )
-        )
+    else:  # style == "cylinders"
+        for order in np.unique(strahler):
+            mask = strahler == order
+            verts, fi, fj, fk = _cylinder_mesh(
+                starts[mask],
+                ends[mask],
+                parent_diameters[mask] / 2.0,
+                diameters[mask] / 2.0,
+                n_sides=n_sides,
+            )
+            fig.add_trace(
+                go.Mesh3d(
+                    x=verts[:, 0],
+                    y=verts[:, 1],
+                    z=verts[:, 2],
+                    i=fi,
+                    j=fj,
+                    k=fk,
+                    color=figstyle.strahler_color(int(order)),
+                    flatshading=False,
+                    lighting=dict(  # noqa: C408
+                        ambient=0.6,
+                        diffuse=0.5,
+                        specular=0.05,
+                    ),
+                    lightposition=dict(x=100, y=200, z=300),  # noqa: C408
+                    name=f"Strahler {int(order)}",
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
 
     if show_leaves:
         from mechatree.light import Sun, extract_leaves, intercept
@@ -234,6 +292,101 @@ def plot_forest_topdown(forest, *, biomass_scale: float = 1.0):
 
 
 # ---- helpers ---------------------------------------------------------------
+
+
+def _cylinder_mesh(
+    starts: np.ndarray,
+    ends: np.ndarray,
+    r_base: np.ndarray,
+    r_top: np.ndarray,
+    *,
+    n_sides: int = 8,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Build Mesh3d vertex + face buffers for a batch of tapered cylinders.
+
+    For ``N`` input branches and ``S = n_sides`` polygon sides, each branch
+    contributes ``2S`` vertices (bottom ring + top ring) and ``2S`` triangles
+    (one quadrilateral side split into two). End caps are omitted —
+    consecutive branches share endpoints, so caps would only matter at
+    terminals where they are barely visible.
+
+    Parameters
+    ----------
+    starts, ends
+        ``(N, 3)`` branch base / tip coordinates.
+    r_base, r_top
+        ``(N,)`` bottom and top radii.
+    n_sides
+        Polygon sides per cylinder. Defaults to 8.
+
+    Returns
+    -------
+    vertices, i, j, k
+        ``vertices`` is ``(N * 2 * n_sides, 3)``; ``i, j, k`` are flat
+        ``(N * 2 * n_sides,)`` int arrays giving Mesh3d triangle vertex
+        indices.
+    """
+    starts = np.asarray(starts, dtype=np.float64)
+    ends = np.asarray(ends, dtype=np.float64)
+    r_base = np.asarray(r_base, dtype=np.float64).reshape(-1, 1)
+    r_top = np.asarray(r_top, dtype=np.float64).reshape(-1, 1)
+    N = starts.shape[0]
+    if N == 0:
+        empty_v = np.empty((0, 3), dtype=np.float64)
+        empty_i = np.empty(0, dtype=np.int32)
+        return empty_v, empty_i, empty_i.copy(), empty_i.copy()
+
+    # Unit tangent per branch.
+    t = ends - starts
+    L = np.linalg.norm(t, axis=1, keepdims=True)
+    L = np.where(L > 0, L, 1.0)
+    t = t / L
+
+    # Build an orthonormal frame (u, v) ⟂ t. Pick the world axis least
+    # parallel to t to keep the cross product well-conditioned.
+    abs_t = np.abs(t)
+    pick = np.argmin(abs_t, axis=1)  # (N,) in {0,1,2}
+    helper = np.zeros_like(t)
+    helper[np.arange(N), pick] = 1.0
+    u = np.cross(t, helper)
+    u /= np.linalg.norm(u, axis=1, keepdims=True)
+    v = np.cross(t, u)  # already unit, t and u are orthonormal
+
+    theta = 2.0 * math.pi * np.arange(n_sides) / n_sides
+    cos_t = np.cos(theta)[None, :, None]  # (1, S, 1)
+    sin_t = np.sin(theta)[None, :, None]
+    u_e = u[:, None, :]  # (N, 1, 3)
+    v_e = v[:, None, :]
+    start_e = starts[:, None, :]
+    end_e = ends[:, None, :]
+    r_base_e = r_base[:, :, None]  # (N, 1, 1)
+    r_top_e = r_top[:, :, None]
+
+    # (N, S, 3) ring positions for the bottom and top.
+    bottom = start_e + r_base_e * (cos_t * u_e + sin_t * v_e)
+    top = end_e + r_top_e * (cos_t * u_e + sin_t * v_e)
+
+    # Pack as [b0, b1, ..., b_{S-1}, t0, t1, ..., t_{S-1}] per branch, then
+    # concatenate branches. base_offset[b] = b * 2S is the first vertex of
+    # branch b.
+    vertices = np.concatenate([bottom, top], axis=1).reshape(N * 2 * n_sides, 3)
+
+    # Side k of branch b: vertices (b_k, b_{k+1}, t_k, t_{k+1}) split into
+    # two triangles (b_k, b_{k+1}, t_k) and (t_k, b_{k+1}, t_{k+1}).
+    k_idx = np.arange(n_sides)
+    k_next = (k_idx + 1) % n_sides
+    base_offset = (np.arange(N) * 2 * n_sides)[:, None]  # (N, 1)
+    b_k = base_offset + k_idx[None, :]
+    b_n = base_offset + k_next[None, :]
+    t_k = base_offset + n_sides + k_idx[None, :]
+    t_n = base_offset + n_sides + k_next[None, :]
+
+    # First triangle of every side, then the second triangle. Flatten in the
+    # same order so faces stay contiguous per branch.
+    i = np.concatenate([b_k.ravel(), t_k.ravel()]).astype(np.int32)
+    j = np.concatenate([b_n.ravel(), b_n.ravel()]).astype(np.int32)
+    k = np.concatenate([t_k.ravel(), t_n.ravel()]).astype(np.int32)
+    return vertices, i, j, k
 
 
 def _apply_iso_layout(fig, verts: np.ndarray) -> None:
