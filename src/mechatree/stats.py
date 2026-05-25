@@ -214,7 +214,11 @@ class HortonRatios:
 
 
 def horton_ratios(
-    summary: HortonSummary | StrahlerSummary, *, drop_top: bool = True
+    summary: HortonSummary | StrahlerSummary,
+    *,
+    drop_top: bool = True,
+    max_rank: int | None = None,
+    mean_length_override: np.ndarray | None = None,
 ) -> HortonRatios:
     """Log-linear fit of per-rank quantities → bifurcation ratios + fractal D.
 
@@ -237,6 +241,19 @@ def horton_ratios(
     point) so dropping the top rank keeps the four fits anchored to the
     same support.
 
+    ``max_rank`` caps the fit support at ``min(W - drop_top, max_rank)``.
+    Eloy et al. 2017's SI Fig. S12 fits only ranks 1..7 even on trees
+    that grow to max Strahler 8–9: high-rank means are noisy because
+    they sit on a handful of branches, and capping the fit keeps the
+    recovered ratios stable across runs of differing depth.
+
+    ``mean_length_override`` substitutes a different per-rank length
+    array (typically :func:`mean_distance_to_leaves`) for the length fit,
+    leaving the count / diameter / area fits unchanged. Must have the
+    same length as ``summary.n_branches``. Reproduces the paper's
+    ``R_l`` from the recursive distance-to-leaves rather than the
+    per-stream chain length that ``HortonSummary.mean_length`` reports.
+
     Raises ``ValueError`` if fewer than two ranks remain after the
     drop_top exclusion and masking of zero counts.
     """
@@ -244,11 +261,24 @@ def horton_ratios(
     if W < 2:
         raise ValueError(f"need at least 2 Strahler ranks, got {W}")
     last = W - 1 if drop_top else W
+    if max_rank is not None:
+        if max_rank < 2:
+            raise ValueError(f"max_rank must be >= 2, got {max_rank}")
+        last = min(last, max_rank)
     if last < 2:
         raise ValueError(f"need at least 2 usable ranks, got {last} (try drop_top=False)")
     w_all = np.arange(1, last + 1, dtype=float)
     counts = summary.n_branches[:last].astype(float)
-    length = summary.mean_length[:last].astype(float)
+    if mean_length_override is not None:
+        if mean_length_override.shape != summary.n_branches.shape:
+            raise ValueError(
+                "mean_length_override shape "
+                f"{mean_length_override.shape} does not match summary "
+                f"{summary.n_branches.shape}"
+            )
+        length = mean_length_override[:last].astype(float)
+    else:
+        length = summary.mean_length[:last].astype(float)
     diameter = summary.mean_diameter[:last].astype(float)
     area = summary.mean_area[:last].astype(float)
     mask = (counts > 0) & (length > 0) & (diameter > 0) & (area > 0)
@@ -266,6 +296,85 @@ def horton_ratios(
     R_a = 10.0 ** slope(area)
     D = math.log(R_n) / math.log(R_l)
     return HortonRatios(R_n=R_n, R_l=R_l, R_d=R_d, R_a=R_a, D=D, fit_orders=w)
+
+
+def distance_to_leaves(tree: PyTree) -> np.ndarray:
+    """Per-branch recursive distance from each branch to its descendant twigs.
+
+    Terminal branches (no children) get ``length / 2``. Internal branches
+    get ``length + weighted_mean(child.distance_to_leaves)`` across their
+    children, weighted by each child subtree's ``nb_leaves``. The reference
+    point is the **base** of the branch, and the metric is the average
+    arc-length distance along the tree skeleton to the midpoint of a
+    descendant terminal twig.
+
+    Mirrors ``b%distance_leaves`` in the legacy Fortran ``save_area``
+    (``legacy_fortran/mod_tree.f90:1174-1203``); the Fortran constants
+    ``0.5`` and ``+1.0`` are the unit-twig instantiation (``length = 1``)
+    of this length-aware form. Carrying ``b.length`` lets the metric stay
+    correct when branches are merged after pruning and grow past unit length.
+
+    Used to reproduce the per-rank ``<l>`` plotted in Eloy et al. 2017
+    SI Fig. S8(b); aggregate with :func:`mean_distance_to_leaves` to
+    obtain the per-Horton-rank series that feeds :func:`horton_ratios`.
+
+    The MechaTree depth-first ordering guarantees every descendant has a
+    higher index than its parent (see ``mechanics.cpp:98-100``), so a single
+    reverse-index pass suffices.
+    """
+    tree.reorder()  # refresh nb_leaves in case the tree hasn't been stepped
+    n = tree.get_number_of_branches()
+    if n == 0:
+        return np.zeros(0)
+    dist = np.empty(n)
+    for i in range(n - 1, -1, -1):
+        L = tree.get_length(i)
+        kids = tree.get_children_index(i)
+        if len(kids) == 0:
+            dist[i] = 0.5 * L
+            continue
+        num = 0.0
+        denom = 0
+        for k in kids:
+            w = tree.get_nb_leaves(k)
+            num += dist[k] * w
+            denom += w
+        dist[i] = L + (num / denom if denom > 0 else 0.5 * L)
+    return dist
+
+
+def mean_distance_to_leaves(tree: PyTree) -> np.ndarray:
+    """Per-Horton-rank mean of :func:`distance_to_leaves`.
+
+    For each Horton order ``w`` (1-indexed), returns the **mean over all
+    branches** with ``horton == w`` of their per-branch
+    ``distance_to_leaves`` value. The output is a ``(max_order,)`` array
+    indexed ``0..max_order-1`` so it can be dropped in as
+    ``mean_length_override`` for :func:`horton_ratios` alongside a
+    :func:`horton_summary` of the same tree.
+
+    Matches the per-rank ``<l>`` reported in Eloy et al. 2017 SI Fig. S8(b)
+    — the Fortran pipeline writes per-branch ``distance_leaves`` paired
+    with Strahler order and the MATLAB ``Fractal_dim.m`` script then
+    averages over branches per rank.
+    """
+    tree.set_strahler()
+    tree.set_horton()
+    n = tree.get_number_of_branches()
+    if n == 0:
+        return np.zeros(0)
+    dist = distance_to_leaves(tree)
+    horton = np.empty(n, dtype=np.int64)
+    for i in range(n):
+        horton[i] = tree.get_horton(i)
+    max_order = int(horton.max())
+    sums = np.zeros(max_order)
+    counts = np.zeros(max_order, dtype=np.int64)
+    for w in range(1, max_order + 1):
+        mask = horton == w
+        counts[w - 1] = int(mask.sum())
+        sums[w - 1] = float(dist[mask].sum())
+    return np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
 
 
 def leonardo_ratios(tree: PyTree) -> np.ndarray:
@@ -327,9 +436,11 @@ __all__ = [
     "HortonRatios",
     "HortonSummary",
     "StrahlerSummary",
+    "distance_to_leaves",
     "horton_ratios",
     "horton_summary",
     "leonardo_ratios",
+    "mean_distance_to_leaves",
     "strahler_summary",
     "tokunaga_matrix",
 ]

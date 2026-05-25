@@ -33,7 +33,8 @@ class TreeConfig:
     twig_diameter: float = 0.1  # was TwigDiameter
     leaf_surface: float = 0.25  # was LeafSurface (S0)
     cauchy: float = 2.0e-5  # was Cauchy (Cy) — runtime value from Forest.ini
-    volume_ratio_leaf: float = 8.0  # was VolumeRatioLeaf — runtime Forest.ini value
+    # was VolumeRatioLeaf; matches the Nat Commun reference V_prod = 4 V_0 l
+    volume_ratio_leaf: float = 4.0
     maintenance_h: float = 0.02  # was MaintenanceH
     max_branches: int = 10000  # was Nmax (advisory only in Step 11)
 
@@ -73,11 +74,20 @@ class TreeConfig:
 
 @dataclass(frozen=True)
 class LightConfig:
-    """Parameters for the hemispherical light integration."""
+    """Parameters for the hemispherical light integration.
+
+    ``leaf_transparency`` (``tau``) sets the per-leaf optical opacity used by
+    :func:`mechatree.light.interception.intercept`: the i-th leaf from the
+    top of a shadow cell receives ``tau**i`` of the incident light.
+    ``tau = 0`` recovers the Fortran binary topmost-wins regime; ``tau = 1``
+    makes leaves fully transparent; default ``tau = 0.5`` matches the value
+    used in Eloy et al. (Nat Commun 2017).
+    """
 
     size_leaf: float = 1.0  # was SizeLeaf — 2D shadow-grid cell size
     n_elevations: int = 4  # was Nelev
     n_azimuths: int = 8  # was Nazim
+    leaf_transparency: float = 0.5  # tau in [0, 1]; 0 = binary, 1 = transparent
 
     def __post_init__(self) -> None:
         if self.n_elevations <= 0:
@@ -86,6 +96,10 @@ class LightConfig:
             raise ValueError("LightConfig.n_azimuths must be positive")
         if self.size_leaf <= 0.0:
             raise ValueError("LightConfig.size_leaf must be positive")
+        if not (0.0 <= self.leaf_transparency <= 1.0):
+            raise ValueError(
+                f"LightConfig.leaf_transparency must be in [0, 1], got {self.leaf_transparency}"
+            )
 
 
 @dataclass(frozen=True)

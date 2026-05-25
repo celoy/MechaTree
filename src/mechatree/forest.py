@@ -161,7 +161,7 @@ class Forest:
         # 1. Light across the union of leaves — cross-tree competition.
         if self.trees:
             leaves = extract_leaves(self.trees, n_directions=self.sun.n_directions)
-            intercept(leaves, self.sun)
+            intercept(leaves, self.sun, leaf_transparency=self.config.light.leaf_transparency)
             aggregate_onto_trees(leaves, self.trees)
 
         # 2. Per-tree mechanics + growth.

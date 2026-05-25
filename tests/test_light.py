@@ -124,9 +124,11 @@ def test_intercept_single_leaf_gets_full_light():
     assert np.allclose(L.light_per_direction, 1.0)
 
 
-def test_intercept_top_leaf_shadows_one_directly_below():
-    """Two leaves at the same (X, Y) but different Z under a vertical sun:
-    the higher one sees light=1, the lower one is fully shaded."""
+def _two_stacked_leaves():
+    """Two leaves at the same (X, Y) but different Z, plus a vertical sun.
+
+    Vertical sun: elev=0 ⇒ rotation is identity ⇒ shadow grid is plain (X, Y).
+    """
     locations = np.array([[0.0, 0.0, 2.0], [0.0, 0.0, 1.0]])
     L = Leaves(
         location=locations,
@@ -134,11 +136,56 @@ def test_intercept_top_leaf_shadows_one_directly_below():
         tree_index=np.array([0, 0], dtype=np.int32),
         light_per_direction=np.zeros((2, 0)),
     )
-    # Vertical sun: elev=0 ⇒ rotation is identity ⇒ shadow grid is plain (X, Y).
     sun = Sun.from_arrays(elev=[0.0], azim=[0.0])
+    return L, sun
+
+
+def test_intercept_default_tau_attenuates_shadowed_leaf():
+    """Default ``tau = 0.5`` (Eloy et al. 2017): the higher leaf sees light=1,
+    the lower one gets ``tau**1 = 0.5``."""
+    L, sun = _two_stacked_leaves()
     intercept(L, sun)
     assert L.light_per_direction[0, 0] == 1.0
+    assert L.light_per_direction[1, 0] == 0.5
+
+
+def test_intercept_tau_zero_recovers_binary():
+    """``tau = 0`` reproduces the Fortran binary topmost-wins regime."""
+    L, sun = _two_stacked_leaves()
+    intercept(L, sun, leaf_transparency=0.0)
+    assert L.light_per_direction[0, 0] == 1.0
     assert L.light_per_direction[1, 0] == 0.0
+
+
+def test_intercept_tau_one_makes_leaves_transparent():
+    """``tau = 1`` lets every leaf see full light, regardless of depth."""
+    L, sun = _two_stacked_leaves()
+    intercept(L, sun, leaf_transparency=1.0)
+    assert np.allclose(L.light_per_direction[:, 0], 1.0)
+
+
+def test_intercept_tau_half_geometric_attenuation():
+    """Four leaves stacked vertically, ``tau = 0.5``: per-direction lights
+    follow the geometric series ``1, 1/2, 1/4, 1/8``."""
+    locations = np.array([[0.0, 0.0, 4.0], [0.0, 0.0, 3.0], [0.0, 0.0, 2.0], [0.0, 0.0, 1.0]])
+    L = Leaves(
+        location=locations,
+        branch_index=np.arange(4, dtype=np.int32),
+        tree_index=np.zeros(4, dtype=np.int32),
+        light_per_direction=np.zeros((4, 0)),
+    )
+    sun = Sun.from_arrays(elev=[0.0], azim=[0.0])
+    intercept(L, sun, leaf_transparency=0.5)
+    assert np.allclose(L.light_per_direction[:, 0], [1.0, 0.5, 0.25, 0.125])
+
+
+def test_intercept_leaf_transparency_validation():
+    """``leaf_transparency`` outside [0, 1] is rejected."""
+    L, sun = _two_stacked_leaves()
+    with pytest.raises(ValueError, match="leaf_transparency"):
+        intercept(L, sun, leaf_transparency=-0.1)
+    with pytest.raises(ValueError, match="leaf_transparency"):
+        intercept(L, sun, leaf_transparency=1.1)
 
 
 def test_intercept_two_well_separated_leaves_both_lit():
@@ -294,7 +341,8 @@ def test_intercept_top_view_decimates_with_n_leaves():
 
 def test_intercept_height_ordering_under_vertical_sun():
     """Three leaves vertically stacked — under a vertical sun the top is
-    fully lit, the others are shaded."""
+    fully lit and the others are attenuated by ``tau ** depth`` (default
+    ``tau = 0.5``)."""
     locations = np.array(
         [
             [0.0, 0.0, 1.0],
@@ -310,9 +358,9 @@ def test_intercept_height_ordering_under_vertical_sun():
     )
     sun = Sun.from_arrays(elev=[0.0], azim=[0.0], size_leaf=1.0)
     intercept(L, sun)
-    assert L.light_per_direction[2, 0] == 1.0  # top
-    assert L.light_per_direction[1, 0] == 0.0
-    assert L.light_per_direction[0, 0] == 0.0  # bottom
+    assert L.light_per_direction[2, 0] == 1.0  # top, depth 0
+    assert L.light_per_direction[1, 0] == 0.5  # middle, depth 1
+    assert L.light_per_direction[0, 0] == 0.25  # bottom, depth 2
 
 
 def test_extract_no_leaves_with_empty_n_directions():
@@ -333,7 +381,7 @@ def test_extract_no_leaves_with_empty_n_directions():
 def test_intercept_subcell_shift_is_shadowed():
     """Two leaves vertically stacked but offset in X by 0.2 (less than
     half a cell at size_leaf=1.0) still hit the same cell under a vertical
-    sun and shade."""
+    sun, so the lower one is attenuated by ``tau`` (default 0.5)."""
     locations = np.array(
         [
             [0.0, 0.0, 2.0],
@@ -349,7 +397,7 @@ def test_intercept_subcell_shift_is_shadowed():
     sun = Sun.from_arrays(elev=[0.0], azim=[0.0], size_leaf=1.0)
     intercept(L, sun)
     assert L.light_per_direction[0, 0] == 1.0
-    assert L.light_per_direction[1, 0] == 0.0
+    assert L.light_per_direction[1, 0] == 0.5
 
 
 def test_aggregate_skips_internal_branches():

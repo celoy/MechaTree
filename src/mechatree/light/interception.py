@@ -5,12 +5,15 @@ across every direction in a ``Sun``. Per direction:
 
 1. Rotate every leaf so the sun is along the new Z axis (``Xp/Yp/Zp``).
 2. Bin each leaf's ``(Xp, Yp)`` into an integer cell of size ``size_leaf``.
-3. Each leaf's light is ``1`` if it is the highest-Z' leaf in its cell;
-   every other leaf in that cell gets ``0`` (binary shadow).
+3. Each leaf's light is ``tau ** depth``, where ``depth`` is its 0-indexed
+   rank in Z'-descending order within its cell (the topmost gets
+   ``tau^0 = 1``). ``tau = 0`` recovers the Fortran's binary
+   topmost-wins regime; ``tau = 1`` makes leaves fully transparent; the
+   default ``tau = 0.5`` matches Eloy et al. (Nat Commun 2017).
 
 The Fortran reference walks leaves in Z'-descending order through a
 shadow counter. We instead use ``np.lexsort + np.unique(return_index=...)``
-to identify the single topmost leaf per cell in one vectorised pass —
+to identify the in-cell depth of every leaf in one vectorised pass —
 ~5× faster on realistic leaf counts and equivalent up to tie-breaks
 (ties broken by leaf index ascending, same as the Fortran's stable
 sort by original index).
@@ -31,14 +34,23 @@ from mechatree.light.leaves import Leaves
 from mechatree.light.sun import Sun
 
 
-def intercept(leaves: Leaves, sun: Sun) -> None:
+def intercept(leaves: Leaves, sun: Sun, leaf_transparency: float = 0.5) -> None:
     """Populate ``leaves.light_per_direction`` in place.
+
+    ``leaf_transparency`` (``tau``, in [0, 1]) sets how much light passes
+    through a leaf: the i-th leaf from the top of a shadow cell receives
+    ``tau**i``. ``tau = 0`` is the Fortran binary regime, ``tau = 1`` is
+    fully transparent, default ``tau = 0.5`` matches the value used in
+    Eloy et al. (Nat Commun 2017).
 
     Allocates a fresh ``light_per_direction`` array if its shape doesn't
     match ``(n_leaves, sun.n_directions)`` — the caller can avoid the
     realloc by passing a Leaves built with
     ``extract_leaves(..., n_directions=sun.n_directions)``.
     """
+    if not (0.0 <= leaf_transparency <= 1.0):
+        raise ValueError(f"intercept: leaf_transparency must be in [0, 1], got {leaf_transparency}")
+
     n = leaves.n_leaves
     n_dir = sun.n_directions
 
@@ -89,11 +101,18 @@ def intercept(leaves: Leaves, sun: Sun) -> None:
         order = np.lexsort((idx_tiebreak, -Zprime, cell_key))
 
         # After sorting, the first element of each cell-group is its winner.
+        # depth-in-cell = sorted-position minus the sorted-position of the
+        # first leaf in this group → topmost leaf gets depth 0.
         sorted_keys = cell_key[order]
         _, first_in_group = np.unique(sorted_keys, return_index=True)
-        winners = order[first_in_group]
-
-        leaves.light_per_direction[winners, k] = 1.0
+        group_sizes = np.diff(np.append(first_in_group, n))
+        group_start_sorted = np.repeat(first_in_group, group_sizes)
+        depth_sorted = np.arange(n, dtype=np.int64) - group_start_sorted
+        depth = np.empty(n, dtype=np.int64)
+        depth[order] = depth_sorted
+        # NumPy follows IEEE: 0**0 = 1, 0**k = 0 for k >= 1, so tau=0
+        # recovers the binary topmost-wins regime exactly.
+        leaves.light_per_direction[:, k] = leaf_transparency**depth
 
 
 def aggregate_onto_trees(leaves: Leaves, trees: Iterable[PyTree]) -> None:

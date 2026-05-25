@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `volume_ratio_leaf` default 8.0 → 4.0
+
+- [`mechatree.config.TreeConfig.volume_ratio_leaf`](src/mechatree/config.py) default flipped from `8.0` to `4.0`, matching the Nat Commun reference `Forest_reference.ini` (kept locally under `~/Documents/Arbres/FORTRAN/ART_Revision2/` and `…/ART_Revision2b/`) and the SI Fig. S12 caption (`V_prod = 4 V_0 l`). The legacy `legacy_fortran/Forest.ini` (the older PNAS-submission tarball) still has `VolumeRatioLeaf = 8.0d0`, which is what prior MechaTree code mirrored; that file is unedited per the `legacy_fortran/` provenance rule. Likely fixes a long-standing branch-count over-production: at 200 yr with the species-0 S3 champion, branch count drops from ~77k (VRL=8) to ~8k (VRL=4), in line with the paper's ~10⁴.
+- [`examples/forest.yaml`](examples/forest.yaml) explicit value updated to 4.0.
+- [`tests/test_config.py`](tests/test_config.py) default assertions updated to 4.0.
+
+### Fixed — Notebook 06 `<l>` mean length
+
+- [`notebooks/06_fractal_dimension.ipynb`](notebooks/06_fractal_dimension.ipynb) was plotting `summary.mean_length` as the panel-(b) `<l>` curve and feeding it to the `R_l` fit. `HortonSummary.mean_length` is the **per-Horton-stream chain length** (sum of unit segments in the stream), not the per-branch recursive distance-to-leaves the paper plots in SI Fig. S8(b). The notebook now uses two new helpers in [`mechatree.stats`](src/mechatree/stats.py) instead:
+  - `distance_to_leaves(tree)` — length-aware per-branch recursive distance: terminal branches get `length / 2`; internal branches get `length + nb_leaves`-weighted mean of children's distance. Mirrors `b%distance_leaves` in `legacy_fortran/mod_tree.f90:1174-1203` (`save_area`), generalized from the Fortran's `+1.0` constant to use the actual branch length so the metric stays correct when post-pruning chain-merger (`Tree::removeBranches` at [tree.cpp:502](src/mechatree/_core/tree.cpp#L502)) grows branches past unit length.
+  - `mean_distance_to_leaves(tree)` — per-Horton-rank mean of the above. Drop-in for `summary.mean_length` when reproducing the paper figure.
+- [`mechatree.stats.horton_ratios`](src/mechatree/stats.py) — new `mean_length_override: np.ndarray | None` kwarg swaps in an alternative length series for the `R_l` fit while leaving the count / diameter / area fits untouched. Notebook 06 passes `mean_distance_to_leaves(tree)` through it. Also gained a `max_rank: int | None` kwarg that caps the fit support; notebook 06 sets it to `7` to mirror Eloy et al. 2017 SI Fig. S12, which fits only the lower ranks because the highest ranks sit on too few branches to be stable.
+- [`tests/test_stats.py`](tests/test_stats.py) — six new cases: trunk-only, single binary split (`[1.5, 0.5, 0.5]`), depth-3 perfect binary, unbalanced subtree (verifies the `nb_leaves` weighting on uneven subtrees), per-Horton-rank aggregation, and the `mean_length_override` override path through `horton_ratios`.
+
+### Added — Step 19: leaf transparency in the light model
+
+- [`mechatree.config.LightConfig`](src/mechatree/config.py) — new `leaf_transparency` field (alias `tau`, in `[0, 1]`). Surfaced via YAML `light:` block; defaults to `0.5` per Eloy et al. (Nat Commun 2017).
+- [`mechatree.light.intercept`](src/mechatree/light/interception.py) — replaces the binary topmost-wins write with a depth-rank-based `tau ** depth` write. The i-th leaf from the top of a shadow cell receives `tau**i` of the incident light. `tau = 0` recovers the Fortran binary regime (since NumPy follows IEEE `0**0 = 1`); `tau = 1` makes leaves fully transparent. Optional third argument with the same default; threaded through from `LightConfig` in `grow_tree` and `Forest.step`.
+- [`tests/test_light.py`](tests/test_light.py) — four new tests cover `tau = 0` / `tau = 0.5` (default) / `tau = 1` and the geometric attenuation on a 4-leaf stack. Two pre-existing cell-binning tests updated to the new default.
+
+### Changed — Step 19
+
+- Default light interception switches from binary topmost-wins to graded `tau = 0.5`. Quantitative growth output under the default config shifts because understorey leaves now contribute photosynthate.
+
 ### Added — Notebook 06 (FigS8) + Horton stream stats
 
 - [`notebooks/06_fractal_dimension.ipynb`](notebooks/06_fractal_dimension.ipynb) — reproduces SI Fig. S8 of Eloy et al. 2017 from the species-0 S3 champion. Five panels: 3D mature tree (400 yr), Horton ratios `R_n, R_l, R_d, R_a` and fractal dimension `D = log R_n / log R_l` (open markers = 25 yr juvenile, filled = 400 yr mature), time evolution of those ratios from 0–500 yr, per-segment branch-tapering scatter with 2/3 / 1 / 3/2 reference slopes, and per-bifurcation area-conservation scatter (Leonardo's rule, mean ≈ 0.95).

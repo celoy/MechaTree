@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from mechatree._core import PyTree
-from mechatree.config import Config, TreeConfig
+from mechatree.config import Config, LightConfig, TreeConfig
 from mechatree.genome import AllocationModel, SafetyModel, models_from_config
 from mechatree.growth import primary_growth, requested_growth, secondary_growth
 from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
@@ -157,10 +157,12 @@ def grow_tree(
     """
     genome_cfg = None
     base_dir = None
+    leaf_transparency = LightConfig().leaf_transparency
     if isinstance(config, Config):
         tree_cfg = config.tree
         genome_cfg = config.genome
         base_dir = config.base_dir
+        leaf_transparency = config.light.leaf_transparency
         if n_generations is None:
             n_generations = config.n_generations
         if sun is None:
@@ -200,7 +202,7 @@ def grow_tree(
     for gen in range(n_generations):
         # 1. Light.
         leaves = extract_leaves([tree], n_directions=sun.n_directions)
-        intercept(leaves, sun)
+        intercept(leaves, sun, leaf_transparency=leaf_transparency)
         aggregate_onto_trees(leaves, [tree])
 
         # 2. Mechanics.

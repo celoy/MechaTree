@@ -11,9 +11,11 @@ from mechatree.simulate import grow_tree
 from mechatree.stats import (
     HortonRatios,
     HortonSummary,
+    distance_to_leaves,
     horton_ratios,
     horton_summary,
     leonardo_ratios,
+    mean_distance_to_leaves,
     strahler_summary,
     tokunaga_matrix,
 )
@@ -266,6 +268,172 @@ def test_horton_ratios_on_champion_tree_near_paper_values():
     assert 1.2 < h.R_l < 2.5, f"R_l={h.R_l} outside loose window for paper target 1.7"
     assert 1.2 < h.R_d < 3.0, f"R_d={h.R_d} outside loose window for paper target 1.9"
     assert 1.5 < h.D < 3.5, f"D={h.D} outside loose window for paper target 2.3"
+
+
+def test_distance_to_leaves_trunk_only():
+    """A tree with only the trunk: the trunk is itself a terminal branch."""
+    t = PyTree({})
+    t.set_length(0, 1.0)
+    t.set_diameter(0, 0.1)
+    t.set_unit_t(0, (0.0, 0.0, 1.0))
+    t.set_unit_b(0, (1.0, 0.0, 0.0))
+    dist = distance_to_leaves(t)
+    assert dist.tolist() == [0.5]
+
+
+def test_distance_to_leaves_single_binary_split():
+    """Trunk with two leaf children: each leaf is 0.5, trunk is
+    ((0.5 + 1) * 1 + (0.5 + 1) * 1) / 2 = 1.5."""
+    t = PyTree({})
+    t.set_length(0, 1.0)
+    t.set_diameter(0, 0.1)
+    t.set_unit_t(0, (0.0, 0.0, 1.0))
+    t.set_unit_b(0, (1.0, 0.0, 0.0))
+    t.add_branch_with_geometry(0, 1.0, 0.1, (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    t.add_branch_with_geometry(0, 1.0, 0.1, (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    t.reorder()
+    dist = distance_to_leaves(t)
+    assert dist == pytest.approx([1.5, 0.5, 0.5])
+
+
+def test_distance_to_leaves_perfect_binary_depth_3():
+    """In a depth-3 perfect binary tree the per-level value collapses to
+    level + 0.5 (8 leaves at 0.5, 4 grandparents at 1.5, 2 at 2.5, trunk 3.5)."""
+    t = _balanced_binary_tree(3)
+    dist = distance_to_leaves(t)
+    # 15 branches; trunk at index 0 (level 3); leaves at end (level 0).
+    assert dist[0] == pytest.approx(3.5)
+    # Eight leaves with dist=0.5 — at least 8 entries == 0.5.
+    assert int((dist == 0.5).sum()) == 8
+
+
+def test_distance_to_leaves_unbalanced_weighting():
+    """Asymmetric subtrees: the weighting by ``nb_leaves`` must use the
+    descendant-leaf count, not the immediate child count. Build a trunk
+    with a heavy left subtree (4 leaves) and a single leaf on the right.
+
+    Left subtree: trunk → l → (l1, l2) where l1 → (l1a, l1b) and l2 →
+    (l2a, l2b). Then trunk also has a direct right leaf ``r``.
+    Hand computation:
+      l1.dist = 1.5,  l1.nb_leaves = 2
+      l2.dist = 1.5,  l2.nb_leaves = 2
+      l.dist = ((1.5+1)*2 + (1.5+1)*2) / (2+2) = 2.5
+      l.nb_leaves = 4
+      r.dist = 0.5, r.nb_leaves = 1
+      trunk.dist = ((2.5+1)*4 + (0.5+1)*1) / (4+1) = (14 + 1.5) / 5 = 3.1
+    """
+    t = PyTree({})
+    t.set_length(0, 1.0)
+    t.set_diameter(0, 0.1)
+    t.set_unit_t(0, (0.0, 0.0, 1.0))
+    t.set_unit_b(0, (1.0, 0.0, 0.0))
+    geo = {"length": 1.0, "diameter": 0.1, "unit_t": (0.0, 0.0, 1.0), "unit_b": (1.0, 0.0, 0.0)}
+    l_idx = t.add_branch_with_geometry(0, **geo)
+    l1_idx = t.add_branch_with_geometry(l_idx, **geo)
+    t.add_branch_with_geometry(l1_idx, **geo)
+    t.add_branch_with_geometry(l1_idx, **geo)
+    l2_idx = t.add_branch_with_geometry(l_idx, **geo)
+    t.add_branch_with_geometry(l2_idx, **geo)
+    t.add_branch_with_geometry(l2_idx, **geo)
+    t.add_branch_with_geometry(0, **geo)  # direct right leaf
+    t.reorder()
+    dist = distance_to_leaves(t)
+    assert dist[0] == pytest.approx(3.1)
+
+
+def test_distance_to_leaves_varying_branch_lengths():
+    """Lengths != 1.0 should propagate: terminal dist = L/2; internal
+    dist = own_length + weighted_mean(child.dist). Trunk with length 3,
+    two leaf children each of length 2:
+        leaf.dist = 2 / 2 = 1.0
+        trunk.dist = 3 + (1.0 + 1.0) / 2 = 4.0
+    """
+    t = PyTree({})
+    t.set_length(0, 3.0)
+    t.set_diameter(0, 0.1)
+    t.set_unit_t(0, (0.0, 0.0, 1.0))
+    t.set_unit_b(0, (1.0, 0.0, 0.0))
+    t.add_branch_with_geometry(0, 2.0, 0.1, (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    t.add_branch_with_geometry(0, 2.0, 0.1, (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    t.reorder()
+    dist = distance_to_leaves(t)
+    assert dist == pytest.approx([4.0, 1.0, 1.0])
+
+
+def test_mean_distance_to_leaves_perfect_binary_depth_3():
+    """The C++ ``set_horton`` rule (``tree.cpp:setHorton``) lets one child
+    per fork inherit the parent's Horton label, so per-Horton-rank
+    membership crosses levels-from-leaves. For the depth-3 perfect
+    binary tree:
+        Horton 4 chain absorbs one branch per level (dist 3.5, 2.5, 1.5, 0.5)
+                  → mean 2.0
+        Horton 3 chain absorbs three branches (dist 2.5, 1.5, 0.5)  → mean 1.5
+        Horton 2: 2 level-1 branches (dist 1.5) + 2 leaves (dist 0.5) → mean 1.0
+        Horton 1: 4 lone leaves (dist 0.5)                             → mean 0.5
+    """
+    t = _balanced_binary_tree(3)
+    mean = mean_distance_to_leaves(t)
+    assert mean == pytest.approx([0.5, 1.0, 1.5, 2.0])
+
+
+def test_horton_ratios_mean_length_override():
+    """The override path swaps the length series used in the R_l fit; the
+    other three ratios are untouched."""
+    R_n, R_l, R_d = 2.0, 1.7, 1.9
+    s = _geometric_summary(W=8, R_n=R_n, R_l=R_l, R_d=R_d)
+    # Build a different geometric length series with R_l_alt = 1.4.
+    R_l_alt = 1.4
+    w = np.arange(1, 9, dtype=float)
+    override = R_l_alt ** (w - 1)
+    h = horton_ratios(s, mean_length_override=override)
+    assert h.R_l == pytest.approx(R_l_alt, rel=1e-10)
+    # Counts / diameter / area fits should be untouched.
+    assert h.R_n == pytest.approx(R_n, rel=1e-10)
+    assert h.R_d == pytest.approx(R_d, rel=1e-10)
+    assert h.R_a == pytest.approx(R_d**2, rel=1e-10)
+
+
+def test_horton_ratios_max_rank_caps_fit():
+    """``max_rank`` truncates the fit support so high-rank noise can't
+    drag the recovered ratios. Build a clean geometric series for ranks
+    1..5 and intentionally corrupt rank 6; without the cap, ``R_n`` is
+    wrong; with ``max_rank=5`` the fit recovers the underlying ratio."""
+    R_n = 2.0
+    W = 6
+    w = np.arange(1, W + 1, dtype=float)
+    counts = np.round(R_n ** (W - w)).astype(np.int64)
+    counts[-1] = 100  # corrupt the top rank (should be 1)
+    length = 1.7 ** (w - 1)
+    diameter = 1.9 ** (w - 1)
+    area = 0.25 * math.pi * diameter * diameter
+    s = HortonSummary(
+        n_branches=counts,
+        mean_length=length,
+        mean_diameter=diameter,
+        mean_area=area,
+        total_area=area * counts,
+        max_order=W,
+    )
+    # Default: drop_top=True trims rank 6, so the corruption never sees the
+    # fit and R_n recovers cleanly. Use drop_top=False to expose it.
+    h_no_cap = horton_ratios(s, drop_top=False)
+    assert h_no_cap.R_n != pytest.approx(R_n, rel=0.1)
+    # With max_rank=5 the corrupted rank-6 entry is excluded.
+    h_capped = horton_ratios(s, drop_top=False, max_rank=5)
+    assert h_capped.R_n == pytest.approx(R_n, rel=1e-10)
+    assert h_capped.fit_orders.tolist() == [1, 2, 3, 4, 5]
+
+
+def test_horton_ratios_max_rank_below_two_raises():
+    s = _geometric_summary(W=6, R_n=2.0, R_l=1.7, R_d=1.9)
+    with pytest.raises(ValueError, match="max_rank"):
+        horton_ratios(s, max_rank=1)
+
+
+def test_horton_ratios_mean_length_override_shape_mismatch():
+    s = _geometric_summary(W=6, R_n=2.0, R_l=1.7, R_d=1.9)
+    with pytest.raises(ValueError, match="mean_length_override shape"):
+        horton_ratios(s, mean_length_override=np.array([1.0, 2.0]))
 
 
 def test_tokunaga_matrix_no_lower_in_upper_triangle():

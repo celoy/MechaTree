@@ -14,7 +14,7 @@ def test_treeconfig_defaults():
     assert cfg.twig_diameter == 0.1
     assert cfg.leaf_surface == 0.25
     assert cfg.cauchy == pytest.approx(2.0e-5)
-    assert cfg.volume_ratio_leaf == 8.0
+    assert cfg.volume_ratio_leaf == 4.0
     assert cfg.maintenance_h == 0.02
     assert cfg.theta1 == pytest.approx(math.pi / 4)
     assert cfg.theta2 == pytest.approx(-math.pi / 4)
@@ -51,6 +51,8 @@ def test_lightconfig_defaults():
     assert lc.size_leaf == 1.0
     assert lc.n_elevations == 4
     assert lc.n_azimuths == 8
+    # Step 19: default tau matches Eloy et al. (Nat Commun 2017).
+    assert lc.leaf_transparency == 0.5
 
 
 def test_lightconfig_validation():
@@ -60,13 +62,17 @@ def test_lightconfig_validation():
         LightConfig(n_azimuths=-1)
     with pytest.raises(ValueError):
         LightConfig(size_leaf=0.0)
+    with pytest.raises(ValueError, match="leaf_transparency"):
+        LightConfig(leaf_transparency=-0.1)
+    with pytest.raises(ValueError, match="leaf_transparency"):
+        LightConfig(leaf_transparency=1.1)
 
 
 def test_config_from_yaml_example_file():
     """The example config in examples/forest.yaml loads cleanly."""
     cfg = load_config(Path(__file__).parent.parent / "examples" / "forest.yaml")
     assert cfg.tree.cauchy == pytest.approx(2.0e-5)
-    assert cfg.tree.volume_ratio_leaf == 8.0
+    assert cfg.tree.volume_ratio_leaf == 4.0
     assert cfg.light.n_elevations == 4
     assert cfg.n_generations > 0
 

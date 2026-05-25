@@ -9,7 +9,7 @@ tree:
   twig_diameter: 0.1         # was TwigDiameter
   leaf_surface: 0.25         # was LeafSurface (S0)
   cauchy: 2.0e-5             # was Cauchy (material stiffness Cy) — Forest.ini runtime value
-  volume_ratio_leaf: 8.0     # was VolumeRatioLeaf
+  volume_ratio_leaf: 4.0     # was VolumeRatioLeaf; Nat Commun reference (SI Fig. S12 V_prod = 4 V0 l)
   maintenance_h: 0.02        # was MaintenanceH
   max_branches: 10000        # was Nmax
 
