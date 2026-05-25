@@ -1,0 +1,36 @@
+# SymPy-callable genome example (Step 15).
+#
+# To run:
+#
+#   uv pip install -e .[dev,sympy]
+#   uv run python examples/sympy_genome.py
+#
+# The `genome:` block fields can be scalars (as in examples/forest.yaml) or
+# string expressions in the canonical input symbols:
+#   - safety:        inputs are `nb_leaves`, `max_stress`
+#   - p_seeds        }
+#   - p_leaves       } inputs are `nb_leaves`, `vol_relative`
+#   - phototropism   }
+# Any function in SymPy's namespace is available — tanh, exp, Max, Min,
+# Piecewise — though the per-call cost is a Python lambdify-compiled callable
+# (still microseconds; not a bottleneck against the C++ growth step).
+
+tree:
+  twig_length: 1.0
+  twig_diameter: 0.1
+
+genome:
+  # A self-limiting safety factor: heavier-loaded branches push the target
+  # safety up smoothly toward 3.
+  safety: "3 * tanh(max_stress + 0.1)"
+
+  # Seed-dropping ramps up with reserve fill.
+  p_seeds: "0.1 * tanh(vol_relative)"
+
+  # Constant leaf-investment fraction.
+  p_leaves: 0.5
+
+  # Phototropism is steady early, slowly drifts upward as the canopy grows.
+  phototropism: "0.5 + 0.1 * tanh(nb_leaves / 100)"
+
+n_generations: 50

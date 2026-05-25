@@ -32,11 +32,18 @@ from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
 from mechatree.mechanics import calculate_stresses
 from mechatree.pruning import prune
 
-# A "wind function" maps (generation, rng) -> a 3-tuple wind vector. The
-# rng is the same numpy.random.Generator used for everything else in the
-# Python orchestrator; the tree's own C++ RNG (used inside primary_growth
-# and prune) is seeded separately.
-WindFn = Callable[[int, np.random.Generator], tuple[float, float, float]]
+# A "wind function" maps (generation, rng[, context]) -> a 3-tuple wind vector.
+# Two arities are accepted (arity detected at call time, same pattern as
+# ``OnStep`` below):
+#   - ``cb(generation, rng)`` — classic Step-11 shape; ignores the tree state.
+#   - ``cb(generation, rng, context)`` — receives the live ``PyTree`` (in
+#     ``grow_tree``) or the ``Forest`` (in ``Forest.step``) as the third arg.
+#     Used by canopy-aware wind models (e.g. the DendroFlow bridge in
+#     ``mechatree.wind.dendroflow``).
+# The ``rng`` is the same numpy.random.Generator used elsewhere in the Python
+# orchestrator; the tree's own C++ RNG (used inside primary_growth and prune)
+# is seeded separately.
+WindFn = Callable[..., tuple[float, float, float]]
 
 # ``on_step`` callback. Two forms are accepted for backward compatibility:
 #   - ``cb(generation, tree)`` — original Step-11 signature
@@ -135,8 +142,12 @@ def grow_tree(
         ``ConstantSafety(3.0)`` and
         ``ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5)``.
     wind_fn:
-        Optional ``(generation, rng) -> (x, y, z)``. Default = ``default_wind_fn``
-        (Fortran-faithful rotating wind with long-tailed amplitude).
+        Optional wind callable. Two arities are accepted: ``(generation, rng)``
+        — classic shape, ignored tree state — or ``(generation, rng, tree)``,
+        which receives the live ``PyTree`` as the third argument (used by the
+        DendroFlow bridge). When ``None``, the wind callable is resolved from
+        ``config.wind``: ``model: default`` (Fortran-faithful rotating wind) or
+        ``model: dendroflow`` (canopy-aware streamwise mean).
     sun:
         Optional ``Sun``. Default = ``Sun()`` (4 elevations x 8 azimuths).
     on_step:
@@ -173,9 +184,10 @@ def grow_tree(
         if allocation is None:
             allocation = default_allocation
     if wind_fn is None:
-        wind_fn = default_wind_fn
+        wind_fn = _resolve_wind_fn(config)
 
     cb_arity = _callback_arity(on_step) if on_step is not None else 0
+    wind_arity = _callback_arity(wind_fn)
 
     tree = make_seed_tree(tree_cfg)
     tree.set_seed(seed & 0xFFFFFFFF)
@@ -199,7 +211,7 @@ def grow_tree(
         secondary_growth(tree, volume_per_leaf=volume_per_leaf)
 
         # 4. Pruning under per-generation wind.
-        wind = wind_fn(gen, rng)
+        wind = wind_fn(gen, rng, tree) if wind_arity >= 3 else wind_fn(gen, rng)
         n_pruned = prune(
             tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy
         )
@@ -263,6 +275,28 @@ def grow_tree(
                 on_step(gen, tree)
 
     return tree
+
+
+def _resolve_wind_fn(config: Config | TreeConfig) -> WindFn:
+    """Pick a wind callable based on the YAML ``wind:`` block.
+
+    Falls back to :func:`default_wind_fn` for bare ``TreeConfig`` or
+    ``Config`` with ``wind.model == 'default'``. When ``wind.model ==
+    'dendroflow'`` the DendroFlow bridge is built from
+    :class:`~mechatree.config.WindConfig`'s fields.
+    """
+    if isinstance(config, Config) and config.wind.model == "dendroflow":
+        from mechatree.wind.dendroflow import make_dendroflow_wind_fn
+
+        wc = config.wind
+        return make_dendroflow_wind_fn(
+            U_infty=wc.U_infty,
+            z_centers=wc.z_centers,
+            H=wc.H,
+            C_D=wc.C_D,
+            z_representative=wc.z_representative,
+        )
+    return default_wind_fn
 
 
 def _callback_arity(fn: Callable) -> int:

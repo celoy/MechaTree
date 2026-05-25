@@ -182,9 +182,14 @@ YAML config:
   tree toward more or less mechanical headroom.
 - ``allocation`` — a :class:`mechatree.genome.AllocationModel`; default
   is ``ConstantAllocation(p_seeds=0.1, p_leaves=0.5, phototropism=0.5)``.
-- ``wind_fn`` — a Python callable ``(generation, rng) -> (x, y, z)``.
-  The default mirrors the Fortran's rotating storm with a long-tailed
-  amplitude.
+- ``wind_fn`` — a Python callable returning a 3-tuple wind vector. Two
+  arities are accepted: ``(generation, rng) -> (x, y, z)`` for stateless
+  winds, or ``(generation, rng, context) -> (x, y, z)`` for canopy-aware
+  winds that need access to the live ``PyTree`` (in ``grow_tree``) or
+  ``Forest`` (in ``Forest.step``). The default mirrors the Fortran's
+  rotating storm with a long-tailed amplitude. See the
+  :ref:`canopy-aware-wind` section for an out-of-the-box canopy-aware
+  option.
 - ``sun`` — a :class:`mechatree.light.Sun`. The default 4×8 grid samples
   the Lambert hemisphere; ``Sun.from_arrays(elev, azim)`` lets you
   specify arbitrary directions.
@@ -211,6 +216,91 @@ genome with :func:`mechatree.genome.load_champion`:
 Or set ``genome.neural_from`` in the YAML config and ``load_config``
 will build the neural models for you.
 
+For a closed-form genome that sits between the constants and the neural
+nets, MechaTree ships a SymPy bridge (Step 15). Any ``genome:`` scalar
+in the YAML can be replaced with a string expression in the canonical
+input symbols — ``nb_leaves`` and ``max_stress`` for ``safety``,
+``nb_leaves`` and ``vol_relative`` for the allocation fields:
+
+.. code-block:: yaml
+
+   genome:
+     safety:        "3 * tanh(max_stress + 0.1)"
+     p_seeds:       "0.1 * tanh(vol_relative)"
+     p_leaves:      0.5
+     phototropism:  "0.5 + 0.1 * tanh(nb_leaves / 100)"
+
+The bridge is gated behind the ``sympy`` optional extra
+(``pip install 'mechatree[sympy]'``); expressions are parsed with
+``sympy.sympify``, compiled with ``sympy.lambdify``, and dispatched per
+branch via :class:`mechatree.genome.CallbackSafety` /
+:class:`mechatree.genome.CallbackAllocation` — Cython-side
+``with gil`` shims hand control back to Python from the C++ growth
+loop. Programmatic constructors live in :mod:`mechatree.sympy_genome`:
+
+.. code-block:: python
+
+   from mechatree.sympy_genome import sympy_safety, sympy_allocation
+
+   safety = sympy_safety("3 * tanh(max_stress + 0.1)")
+   allocation = sympy_allocation(
+       p_seeds="0.1 * tanh(vol_relative)",
+       p_leaves=0.5,
+       phototropism="0.5 + 0.1 * tanh(nb_leaves / 100)",
+   )
+   tree = grow_tree(cfg, n_generations=100, seed=42,
+                    safety=safety, allocation=allocation)
+
+See ``examples/sympy_genome.py`` + ``examples/sympy_genome.yaml`` for a
+runnable recipe.
+
+
+.. _canopy-aware-wind:
+
+Canopy-aware wind via DendroFlow
+================================
+
+For a wind model that accounts for the canopy thinning the inflow
+profile, MechaTree ships a bridge to `DendroFlow
+<https://github.com/celoy/DendroFlow>`_'s lean
+``BulkThinningBranchWindModel``. The bridge is gated behind an optional
+extra::
+
+   uv pip install -e '.[dendroflow]'
+   # DendroFlow isn't on PyPI yet — install from a sibling checkout:
+   uv pip install -e ../DendroFlow
+
+YAML drives the wiring — add a ``wind:`` block:
+
+.. code-block:: yaml
+
+   wind:
+     model: dendroflow
+     U_infty:   [3.0, 4.0, 5.0, 5.8, 6.4, 6.9, 7.3, 7.6, 7.8, 8.0]
+     z_centers: [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75, 4.25, 4.75]
+     H: 0.5
+     C_D: 1.0
+
+Per generation, the bridge snapshots the live tree (or every tree in a
+``Forest``) into a DendroFlow ``Cylinders``, runs the 1-D bulk-thinning
+solver, and returns the canopy-mean streamwise wind as
+``(Ū, 0, 0)``. For ``Forest``, every tree's branches go into a single
+``Cylinders`` call so the wake/shadow is captured. Python factory if
+you'd rather skip the YAML:
+
+.. code-block:: python
+
+   from mechatree.wind import make_dendroflow_wind_fn
+
+   wind_fn = make_dendroflow_wind_fn(
+       U_infty=[3, 4, 5, 6, 7, 8],
+       z_centers=[0.25, 0.75, 1.25, 1.75, 2.25, 2.75],
+       H=0.5,
+   )
+   tree = grow_tree(cfg, n_generations=100, seed=42, wind_fn=wind_fn)
+
+See ``examples/dendroflow_wind.py`` for a runnable recipe.
+
 
 Examples
 ========
@@ -227,6 +317,12 @@ Simulation tutorials (Step 11+):
   different wind / sun / genome settings.
 - ``examples/plot_strahler.py`` — Strahler-order diagnostics
   (self-similarity, Leonardo's rule, Tokunaga matrix).
+- ``examples/dendroflow_wind.py`` + ``dendroflow_wind.yaml`` —
+  canopy-aware wind via the DendroFlow bridge (Step 17). Requires the
+  ``dendroflow`` optional extra.
+- ``examples/sympy_genome.py`` + ``sympy_genome.yaml`` — closed-form
+  safety + allocation via SymPy expressions (Step 15). Requires the
+  ``sympy`` optional extra.
 - ``examples/forest.yaml`` — annotated configuration with the Fortran
   parameter names in comments.
 

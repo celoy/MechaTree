@@ -40,6 +40,21 @@ cdef extern from "genome.h" nogil:
         NeuralAllocation(const double* weights) except +
         const double* weights()
 
+    # Callback-driven subclasses — bridge Python callables (e.g. a SymPy-
+    # compiled lambda) into the C++ vtable that growth.cpp calls.
+    ctypedef double (*safety_callback_fn)(int nb_leaves, double max_stress,
+                                          void* user_data)
+    ctypedef void   (*allocation_callback_fn)(
+        int nb_leaves, double vol_relative,
+        double* p_seeds, double* p_leaves, double* phototropism,
+        void* user_data)
+
+    cdef cppclass CallbackSafety(SafetyModel):
+        CallbackSafety(safety_callback_fn fn, void* user_data) except +
+
+    cdef cppclass CallbackAllocation(AllocationModel):
+        CallbackAllocation(allocation_callback_fn fn, void* user_data) except +
+
 cdef extern from "branch.h" nogil:
     cdef cppclass Branch:
         # typed mechanics fields (Step 9) — getters/setters declared inline

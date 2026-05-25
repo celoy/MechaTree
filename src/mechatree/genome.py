@@ -21,6 +21,8 @@ from typing import Any
 
 from mechatree._core._core import (
     PyAllocationModel,
+    PyCallbackAllocation,
+    PyCallbackSafety,
     PyConstantAllocation,
     PyConstantSafety,
     PyNeuralAllocation,
@@ -35,6 +37,8 @@ ConstantSafety = PyConstantSafety
 ConstantAllocation = PyConstantAllocation
 NeuralSafety = PyNeuralSafety
 NeuralAllocation = PyNeuralAllocation
+CallbackSafety = PyCallbackSafety
+CallbackAllocation = PyCallbackAllocation
 
 
 def _champion(payload: dict[str, Any], species_id: int) -> dict[str, Any]:
@@ -81,13 +85,19 @@ def load_all_champions(
 def models_from_config(gc, base_dir: Path | None = None) -> tuple[SafetyModel, AllocationModel]:
     """Build ``(safety, allocation)`` from a :class:`GenomeConfig`.
 
-    If ``gc.neural_from`` is set, load ``NeuralSafety`` + ``NeuralAllocation``
-    from the referenced JSON champion. ``neural_from["path"]`` may be absolute
-    or relative; if relative and ``base_dir`` is given, it is resolved against
-    ``base_dir`` (typically the YAML file's parent directory), otherwise CWD.
+    Resolution order:
 
-    Otherwise build ``ConstantSafety`` / ``ConstantAllocation`` from the scalar
-    fields.
+    1. ``gc.neural_from`` set → load ``NeuralSafety`` + ``NeuralAllocation``
+       from the referenced JSON champion. ``neural_from["path"]`` may be
+       absolute or relative; if relative and ``base_dir`` is given, it is
+       resolved against ``base_dir`` (typically the YAML file's parent
+       directory), otherwise CWD.
+    2. Any scalar field is a string expression → compile all four fields
+       through :mod:`mechatree.sympy_genome` into ``CallbackSafety`` /
+       ``CallbackAllocation``. Numeric fields are passed through as
+       constants. Requires the ``sympy`` optional extra
+       (``pip install 'mechatree[sympy]'``).
+    3. Otherwise (all scalars) → ``ConstantSafety`` / ``ConstantAllocation``.
     """
     if gc is None:
         return (
@@ -102,6 +112,31 @@ def models_from_config(gc, base_dir: Path | None = None) -> tuple[SafetyModel, A
         species_id = int(spec.get("species_id", 0))
         safety, allocation, _ = load_champion(raw_path, species_id)
         return safety, allocation
+
+    has_expr = any(
+        isinstance(v, str) for v in (gc.safety, gc.p_seeds, gc.p_leaves, gc.phototropism)
+    )
+    if has_expr:
+        try:
+            from mechatree.sympy_genome import sympy_allocation, sympy_safety
+        except ImportError as exc:
+            raise ImportError(
+                "GenomeConfig contains a string expression but SymPy isn't installed. "
+                "Install with: pip install 'mechatree[sympy]'"
+            ) from exc
+
+        safety_value: SafetyModel
+        if isinstance(gc.safety, str):
+            safety_value = sympy_safety(gc.safety)
+        else:
+            safety_value = ConstantSafety(gc.safety)
+        allocation_value = sympy_allocation(
+            p_seeds=gc.p_seeds,
+            p_leaves=gc.p_leaves,
+            phototropism=gc.phototropism,
+        )
+        return safety_value, allocation_value
+
     return (
         ConstantSafety(gc.safety),
         ConstantAllocation(p_seeds=gc.p_seeds, p_leaves=gc.p_leaves, phototropism=gc.phototropism),
@@ -110,6 +145,8 @@ def models_from_config(gc, base_dir: Path | None = None) -> tuple[SafetyModel, A
 
 __all__ = [
     "AllocationModel",
+    "CallbackAllocation",
+    "CallbackSafety",
     "ConstantAllocation",
     "ConstantSafety",
     "NeuralAllocation",

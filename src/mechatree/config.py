@@ -103,30 +103,49 @@ class GenomeConfig:
     ``scripts/strategies_single_tree.py`` and selects which species to load.
     When it is present, :class:`NeuralSafety` / :class:`NeuralAllocation` are
     used instead of the scalar fields.
+
+    Step 15: each scalar field may also be a **string** holding a SymPy
+    expression in the canonical input names (``nb_leaves`` and ``max_stress``
+    for safety; ``nb_leaves`` and ``vol_relative`` for the allocation
+    fields). When at least one field is a string, :mod:`mechatree.sympy_genome`
+    compiles all four into :class:`CallbackSafety` / :class:`CallbackAllocation`.
     """
 
-    safety: float = 3.0  # was neural_branch output (Safety)
-    p_seeds: float = 0.1  # was neural_reserve output [0]
-    p_leaves: float = 0.5  # was neural_reserve output [1]
-    phototropism: float = 0.5  # was neural_reserve output [2]
+    safety: float | str = 3.0  # was neural_branch output (Safety)
+    p_seeds: float | str = 0.1  # was neural_reserve output [0]
+    p_leaves: float | str = 0.5  # was neural_reserve output [1]
+    phototropism: float | str = 0.5  # was neural_reserve output [2]
     neural_from: dict[str, Any] | None = None  # {"path": ..., "species_id": 0}
 
     def __post_init__(self) -> None:
-        if self.safety <= 0.0:
+        # Scalar checks only apply when the field is a number; string
+        # expressions are validated at model-build time in
+        # :func:`mechatree.sympy_genome._compile`.
+        if isinstance(self.safety, (int, float)) and self.safety <= 0.0:
             raise ValueError(f"GenomeConfig.safety must be positive, got {self.safety}")
-        if self.p_seeds < 0.0:
+        if isinstance(self.p_seeds, (int, float)) and self.p_seeds < 0.0:
             raise ValueError(f"GenomeConfig.p_seeds must be non-negative, got {self.p_seeds}")
-        if self.p_leaves < 0.0:
+        if isinstance(self.p_leaves, (int, float)) and self.p_leaves < 0.0:
             raise ValueError(f"GenomeConfig.p_leaves must be non-negative, got {self.p_leaves}")
-        if self.p_seeds + self.p_leaves > 1.0:
+        if (
+            isinstance(self.p_seeds, (int, float))
+            and isinstance(self.p_leaves, (int, float))
+            and self.p_seeds + self.p_leaves > 1.0
+        ):
             raise ValueError(
                 "GenomeConfig.p_seeds + p_leaves must be <= 1, "
                 f"got {self.p_seeds} + {self.p_leaves}"
             )
-        if not 0.0 <= self.phototropism <= 1.0:
+        if isinstance(self.phototropism, (int, float)) and not (0.0 <= self.phototropism <= 1.0):
             raise ValueError(
                 f"GenomeConfig.phototropism must be in [0, 1], got {self.phototropism}"
             )
+        # String fields must be non-empty so they fail loudly rather than
+        # silently turning into ``"0"`` at lambdify time.
+        for field_name in ("safety", "p_seeds", "p_leaves", "phototropism"):
+            v = getattr(self, field_name)
+            if isinstance(v, str) and not v.strip():
+                raise ValueError(f"GenomeConfig.{field_name}: empty string expression")
         if self.neural_from is not None:
             if not isinstance(self.neural_from, dict):
                 raise ValueError(
@@ -144,6 +163,64 @@ class GenomeConfig:
                 raise ValueError(
                     f"GenomeConfig.neural_from['species_id'] must be an int, "
                     f"got {type(species_id).__name__}"
+                )
+
+
+@dataclass(frozen=True)
+class WindConfig:
+    """Wind model selection + parameters (Step 17 / DendroFlow M6).
+
+    ``model: default`` keeps the Fortran-faithful rotating wind
+    (:func:`mechatree.simulate.default_wind_fn`) — none of the other fields
+    are consumed.
+
+    ``model: dendroflow`` selects DendroFlow's lean
+    ``BulkThinningBranchWindModel`` via the
+    :mod:`mechatree.wind.dendroflow` bridge. ``U_infty`` and ``z_centers``
+    are then required (same length, ``z_centers`` strictly monotone with
+    ``z_centers[0] - H/2 <= 0`` so the trunk base lies in-range).
+    """
+
+    model: str = "default"
+    U_infty: tuple[float, ...] | None = None
+    z_centers: tuple[float, ...] | None = None
+    H: float = 0.5
+    C_D: float = 1.0
+    z_representative: str = "mean"
+
+    def __post_init__(self) -> None:
+        if self.model not in ("default", "dendroflow"):
+            raise ValueError(
+                f"WindConfig.model must be 'default' or 'dendroflow', got {self.model!r}"
+            )
+        if self.model == "dendroflow":
+            if self.U_infty is None or self.z_centers is None:
+                raise ValueError(
+                    "WindConfig: U_infty and z_centers are required when model='dendroflow'"
+                )
+            if len(self.U_infty) != len(self.z_centers):
+                raise ValueError(
+                    "WindConfig: U_infty and z_centers must have the same length; "
+                    f"got {len(self.U_infty)} and {len(self.z_centers)}"
+                )
+            if len(self.U_infty) < 2:
+                raise ValueError("WindConfig: U_infty / z_centers must have >= 2 entries")
+            zs = list(self.z_centers)
+            if any(zs[i + 1] <= zs[i] for i in range(len(zs) - 1)):
+                raise ValueError("WindConfig.z_centers must be strictly monotone increasing")
+            if self.H <= 0.0:
+                raise ValueError(f"WindConfig.H must be positive, got {self.H}")
+            if self.C_D <= 0.0:
+                raise ValueError(f"WindConfig.C_D must be positive, got {self.C_D}")
+            if zs[0] - 0.5 * self.H > 0.0:
+                raise ValueError(
+                    "WindConfig.z_centers[0] - H/2 must be <= 0 so the trunk base "
+                    f"is covered; got z_centers[0]={zs[0]} H={self.H}"
+                )
+            if self.z_representative not in ("mean", "max", "base"):
+                raise ValueError(
+                    "WindConfig.z_representative must be 'mean'/'max'/'base', "
+                    f"got {self.z_representative!r}"
                 )
 
 
@@ -193,6 +270,7 @@ class Config:
     light: LightConfig = field(default_factory=LightConfig)
     forest: ForestConfig = field(default_factory=ForestConfig)
     genome: GenomeConfig = field(default_factory=GenomeConfig)
+    wind: WindConfig = field(default_factory=WindConfig)
     n_generations: int = 100  # was Ngeneration / Nsteps
     # Directory used to resolve relative paths inside the config (e.g.
     # ``genome.neural_from.path``). Populated by ``from_yaml`` with the YAML
@@ -215,6 +293,7 @@ class Config:
         light_data = data.get("light", {}) or {}
         forest_data = data.get("forest", {}) or {}
         genome_data = data.get("genome", {}) or {}
+        wind_data = data.get("wind", {}) or {}
         # The ``forest`` block carries n_generations in the Fortran .ini; we
         # also accept a top-level ``n_generations`` for users running only the
         # single-tree simulator without a forest block.
@@ -232,11 +311,17 @@ class Config:
         genome_known = {
             k: v for k, v in genome_data.items() if k in GenomeConfig.__dataclass_fields__
         }
+        wind_known = {k: v for k, v in wind_data.items() if k in WindConfig.__dataclass_fields__}
+        # Tuple-ify list fields so the frozen dataclass stays hashable.
+        for tuple_field in ("U_infty", "z_centers"):
+            if tuple_field in wind_known and wind_known[tuple_field] is not None:
+                wind_known[tuple_field] = tuple(float(x) for x in wind_known[tuple_field])
         return cls(
             tree=TreeConfig(**tree_known),
             light=LightConfig(**light_known),
             forest=ForestConfig(**forest_known),
             genome=GenomeConfig(**genome_known),
+            wind=WindConfig(**wind_known),
             n_generations=int(n_gen),
             base_dir=base_dir,
         )
@@ -253,5 +338,6 @@ __all__ = [
     "GenomeConfig",
     "LightConfig",
     "TreeConfig",
+    "WindConfig",
     "load_config",
 ]

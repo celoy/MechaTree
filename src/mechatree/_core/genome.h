@@ -156,4 +156,48 @@ private:
     double toto_[N_WEIGHTS];
 };
 
+// Callback-driven subclasses — let Python-side code (e.g. a SymPy-compiled
+// lambda) plug into the C++ vtable that growth.cpp calls. The callback takes
+// the same inputs the abstract `compute()` does, plus an opaque user-data
+// pointer (in practice, a borrowed PyObject* that the caller keeps alive).
+//
+// The Cython wrapper marks its shim `with gil` so we can call back into
+// Python safely. The GIL is held throughout requested_growth / primary_growth
+// today, so the only cost is the extra wrapping.
+
+// Function-pointer typedefs at namespace scope so Cython's extern declaration
+// can name them directly.
+typedef double (*safety_callback_fn)(int nb_leaves, double max_stress,
+                                     void* user_data);
+typedef void (*allocation_callback_fn)(
+    int nb_leaves, double vol_relative,
+    double* p_seeds, double* p_leaves, double* phototropism,
+    void* user_data);
+
+class CallbackSafety final : public SafetyModel {
+public:
+    CallbackSafety(safety_callback_fn fn, void* user_data)
+        : fn_(fn), user_data_(user_data) {}
+    double compute(int nb_leaves, double max_stress) const override {
+        return fn_(nb_leaves, max_stress, user_data_);
+    }
+private:
+    safety_callback_fn fn_;
+    void* user_data_;
+};
+
+class CallbackAllocation final : public AllocationModel {
+public:
+    CallbackAllocation(allocation_callback_fn fn, void* user_data)
+        : fn_(fn), user_data_(user_data) {}
+    void compute(int nb_leaves, double vol_relative,
+                 double& p_seeds, double& p_leaves,
+                 double& phototropism) const override {
+        fn_(nb_leaves, vol_relative, &p_seeds, &p_leaves, &phototropism, user_data_);
+    }
+private:
+    allocation_callback_fn fn_;
+    void* user_data_;
+};
+
 #endif

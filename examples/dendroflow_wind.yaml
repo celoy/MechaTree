@@ -1,0 +1,36 @@
+# DendroFlow wind bridge — example config for Step 17.
+#
+# To run: install MechaTree with the optional ``dendroflow`` extra
+# (and DendroFlow itself, until it ships to PyPI):
+#
+#   uv pip install -e .[dev,dendroflow]
+#   uv pip install -e ../DendroFlow
+#
+# Then:
+#
+#   uv run python examples/dendroflow_wind.py
+#
+# Units are user-defined but must be consistent across this whole block
+# *and* tree.twig_length / tree.twig_diameter (MechaTree itself is unit-free;
+# DendroFlow's thinning formula has the velocity cancel, so canopy_mean
+# comes out in the same units as U_infty regardless of the choice).
+
+tree:
+  twig_length: 1.0
+  twig_diameter: 0.1
+
+# DendroFlow's lean BulkThinningBranchWindModel:
+#   - U_infty: free-stream wind magnitude per z-layer (here a log-law-ish
+#     profile rising from 3 to 8 over 0..5).
+#   - z_centers: layer mid-heights (must cover z=0 and be monotone).
+#   - H: layer height. z_centers[0] - H/2 must be <= 0.
+#   - C_D: cylinder drag coefficient (1.0 is the DendroFlow default).
+wind:
+  model: dendroflow
+  U_infty: [3.0, 4.0, 5.0, 5.8, 6.4, 6.9, 7.3, 7.6, 7.8, 8.0]
+  z_centers: [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75, 4.25, 4.75]
+  H: 0.5
+  C_D: 1.0
+  z_representative: mean  # how to reduce each branch's cylinders to one z
+
+n_generations: 20

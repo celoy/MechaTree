@@ -10,7 +10,7 @@ MechaTree is a Python (with Cython + C++) port of a Fortran90 simulator of **tre
 
 1. **Fortran90 reference code** — written by the user, simulations published in Nat Commun (2017). Sources preserved in `legacy_fortran/`.
 2. **Diego Bengochea Paz's Python port (2017)** — Python + Cython + C++ library that handles tree architectures, written by Diego Bengochea Paz (ORCID [0000-0002-0835-3981](https://orcid.org/0000-0002-0835-3981)) during a 2017 internship. Lightly touched up Feb 2025. Preserved verbatim in `archive/`.
-3. **Modernization (in progress)** — canonical code lives in `src/mechatree/`. Steps 1–6 complete: scaffold, C++/Cython port, auxiliary modules, tests, Sphinx docs, CI matrix + cibuildwheel. The simulator port (Steps 8–12) is also done: mechanics + growth in the C++ core, a light-interception subpackage, single-tree orchestrator, and a forest container. Genome configurability is in: Step 14 (constants in YAML) and Step 16 (`NeuralSafety` / `NeuralAllocation`, loadable from a champion JSON written by the verification script) are landed. The plotting layer has migrated from matplotlib to plotly (no matplotlib runtime dependency). Remaining work is the PyPI release (Step 7), forester-facing notebook tutorials (Step 13), and the optional SymPy-callable genome (Step 15).
+3. **Modernization (in progress)** — canonical code lives in `src/mechatree/`. See the [Modernization roadmap](#modernization-roadmap) table below for live milestone status.
 
 ## Where code lives
 
@@ -81,39 +81,134 @@ These principles came out of the user's roadmap notes. They guide all Step-8+ wo
 - Don't re-introduce the 15 GB of simulation outputs / zips / MATLAB scripts that lived in `/Users/Ch/Documents/Python/Eloy2017_NatComm_archive/` (outside the repo, local-only).
 - Don't create git commits on `main` or push to `main`. The user manages all commits on the main branch themselves — stage changes and surface diffs, but leave `git commit`/`git push` to them. (This overrides Claude Code's default willingness to commit when explicitly asked, unless the user reconfirms in the current session.)
 
-## Step-by-step modernization plan
+## Modernization roadmap
 
-The user prefers staged steps.
+The user prefers staged steps. The table is the source of truth — flip a row's status as work lands and add a `### Step N notes (closed YYYY-MM-DD)` subsection below.
 
-### Done
+|    | Step                                | Status     | Summary |
+|----|-------------------------------------|------------|---------|
+| 1  | Repo scaffold                       | ✅ done    | `pyproject.toml`, `src/mechatree/` package skeleton, pre-commit, initial CI. |
+| 2  | C++/Cython port                     | ✅ done    | setuptools + Cython build; `branch.{h,cpp}`, `tree.{h,cpp}`, `_core.pyx`, `cytree.pxd` under [src/mechatree/_core/](src/mechatree/_core/). |
+| 3  | Auxiliary modules                   | ✅ done    | [src/mechatree/geometry/](src/mechatree/geometry/) (distance), [src/mechatree/plotting/](src/mechatree/plotting/) (2D/3D), recipe scripts under [examples/](examples/). |
+| 4  | Real C++ tests                      | ✅ done    | tests/ exercises the compiled extension, incl. a memory-leak regression. |
+| 5  | Sphinx docs                         | ✅ done    | docs/ scaffolded with Furo. |
+| 6  | CI matrix + cibuildwheel            | ✅ done    | Linux/macOS arm64/macOS x86_64/Windows × py3.10–3.13 + wheel/sdist artifacts. |
+| 7  | Pre-release shake-out (TestPyPI)    | ⬜ pending | `v0.1.0a1` candidate: `uv build` wheel + sdist, smoke-install in a clean venv, dry-run publish to TestPyPI via `workflow_dispatch`. Validates packaging before burning the real PyPI name. |
+| 8  | Design doc & API sketch             | ✅ done    | `docs/design.rst` — Leaf/Branch shapes, YAML schema, public API, callback signatures, C++/Python boundary. |
+| 9  | Mechanics + growth in core          | ✅ done    | `wind_force`, `calculate_stresses` ([mechanics.cpp](src/mechatree/_core/mechanics.cpp)); growth ([growth.cpp](src/mechatree/_core/growth.cpp)); `pruning` / `cut_branch` ([pruning.cpp](src/mechatree/_core/pruning.cpp)). Genome callbacks plug in via a C++ vtable. |
+| 10 | Light interception module           | ✅ done    | [src/mechatree/light/](src/mechatree/light/) — pure-Python `Leaves`/`Sun`, decoupled from `PyTree`. |
+| 11 | Single-tree simulator               | ✅ done    | `mechatree.simulate.grow_tree(config)` runs the `{light → stresses → growth → pruning → seeds/leaves → ordering}` loop. |
+| 12 | Forest container                    | ✅ done    | `mechatree.forest.Forest` — N trees, spatial layout, birth/death lifecycle, cross-tree light competition. |
+| 13 | Forester notebooks                  | ✅ done    | Five plotly-inline tutorials under [notebooks/](notebooks/), each a literate companion to an `examples/` script. `docs/userguide.rst` cross-references them. |
+| 14 | Genome constants in YAML            | ✅ done    | `safety`, `p_seeds`, `p_leaves`, `phototropism` under `genome:` block; default `safety = 3.0` per the Fortran NN result. |
+| 15 | SymPy callable genome               | ✅ done    | YAML `genome:` scalars accept string expressions; SymPy parses + lambdifies, the C++ growth loop dispatches via new `CallbackSafety` / `CallbackAllocation` vtable subclasses. |
+| 16 | Neural genome (`Neural*`)           | ✅ done    | header-only C++ port of the Fortran 3-layer tanh nets ([genome.h](src/mechatree/_core/genome.h)), verified to atol=1e-12. Champion JSON loader. |
+| 17 | DendroFlow wind bridge              | ✅ done    | [src/mechatree/wind/dendroflow.py](src/mechatree/wind/dendroflow.py) wraps DendroFlow's `BulkThinningBranchWindModel` as a 3-arg `WindFn`. YAML `wind:` block selects it. M6 of DendroFlow. |
+| 18 | Stable PyPI 0.1.0 release           | ⬜ pending | After Step 17 lands. Tag `v0.1.0`, flip the TestPyPI dry-run from Step 7 to a real-PyPI publish job. Mirrors DendroFlow's M7. |
 
-- **Step 1** — Repo scaffold (`pyproject.toml`, `src/mechatree/` package, pre-commit, initial CI).
-- **Step 2** — Wired the setuptools + Cython build; ported `branch.{h,cpp}`, `tree.{h,cpp}`, `_core.pyx`, `cytree.pxd` into `src/mechatree/_core/`. `uv pip install -e .` builds the extension.
-- **Step 3** — Auxiliary modules: `src/mechatree/geometry/` (distance), `src/mechatree/plotting/` (2D / 3D), and recipe-style scripts under `examples/`.
-- **Step 4** — Real tests against the C++ extension under `tests/`, including a memory regression test for the C++ leak fix.
-- **Step 5** — Sphinx docs migrated into `docs/`.
-- **Step 6** — Multi-OS CI matrix (Linux / macOS arm64 / macOS x86_64 / Windows × Python 3.10–3.13) + cibuildwheel pipeline producing wheels and sdist as artifacts.
-- **Step 8 — Design doc & API sketch.** `docs/design.rst` captures the `Leaf` / `Branch` shapes, YAML schema, public API and callback signatures, and the C++/Python boundary.
-- **Step 9 — Mechanics + growth in the core.** `legacy_fortran/mod_tree.f90` ported into `src/mechatree/_core/`: `wind_force`, `calculate_stresses` ([mechanics.cpp](src/mechatree/_core/mechanics.cpp)), `requested_growth`, `primary_growth`, `secondary_growth` ([growth.cpp](src/mechatree/_core/growth.cpp)), `pruning`, `cut_branch` ([pruning.cpp](src/mechatree/_core/pruning.cpp)). Genome callbacks (`SafetyModel`, `AllocationModel`) plug in via the C++ vtable from the Cython boundary.
-- **Step 10 — Light interception module.** `src/mechatree/light/` ports `light_interception` / `light_on_trees`; pure Python operating on a `Leaves` collection + `Sun` model. Decoupled from `PyTree`.
-- **Step 11 — Single-tree simulator.** `mechatree.simulate.grow_tree(config)` runs the `{light → stresses → growth → pruning → seeds/leaves → ordering}` loop. Example in `examples/single_tree.py`.
-- **Step 12 — Forest container.** `mechatree.forest.Forest` owns N trees with spatial layout, birth/death lifecycle, cross-tree light competition through the Step-10 module on the concatenated leaf list.
-- **Step 14 — Genome constants in YAML.** Scalars `safety`, `p_seeds`, `p_leaves`, `phototropism` live under a `genome:` block in YAML, populated through `GenomeConfig` (`src/mechatree/config.py`). Default `safety = 3.0` per the Fortran neural-net finding. `grow_tree` / `Forest` build `ConstantSafety` / `ConstantAllocation` from those values when no explicit model is passed.
-- **Step 16 — `NeuralSafety` / `NeuralAllocation`.** The Fortran 3-layer tanh networks (`mod_tree.f90:735 neural_branch`, `:771 neural_reserve`) are ported as header-only C++ classes in [src/mechatree/_core/genome.h](src/mechatree/_core/genome.h), wrapped at the Cython boundary as `PyNeuralSafety` / `PyNeuralAllocation`, and re-exported from `mechatree.genome`. Champion weight vectors are loaded with `mechatree.genome.load_champion(path, species_id)` from a JSON file written by [scripts/strategies_single_tree.py](scripts/strategies_single_tree.py); the reference dataset is [data/S3_champions.json](data/S3_champions.json). YAML configs can select a neural genome via `genome.neural_from: {path, species_id}` (path resolved relative to the YAML file). The C++ port is verified against the Python reference to `atol=1e-12` at every grid point.
+### Step 1 notes (closed 2026-05-23)
 
-### Up next
+Repo scaffold landed in commit `chore: scaffold modern repo structure (Step 1)`. Establishes `pyproject.toml`, `src/mechatree/` layout, pre-commit + ruff config, and an initial GitHub Actions CI workflow.
 
-- **Step 7 — First PyPI release.** Tag `v0.1.0`; release the current "tree architecture + simulator + neural genome" library. CHANGELOG should note scope: ships `PyTree` topology + geometry + plotting + mechanics + light + single-tree + forest + `Constant*` / `Neural*` genome models. Evolution is deferred to a separate package.
-- **Step 13 — Forester-facing examples & tutorials.** Annotated Jupyter notebooks under `notebooks/`, all rendering through **plotly inline** (the library has no matplotlib dependency). Each notebook walks through the science, the YAML config, and the code, with prose between cells. Concrete plan:
-  - `notebooks/01_grow_one_tree.ipynb` — load `examples/forest.yaml`, call `grow_tree`, display the Strahler-coloured 3D tree with `plot_tree_3d` (with leaves on/off toggles). Companion to [examples/grow_one_tree.py](examples/grow_one_tree.py).
-  - `notebooks/02_forest_under_wind.ipynb` — drive a `Forest`, animate population/biomass curves alongside the top-down view (`plot_forest_topdown`), show self-thinning emerging (`plot_self_thinning`). Companion to [examples/grow_a_forest.py](examples/grow_a_forest.py).
-  - `notebooks/03_neural_genome.ipynb` — load an S3 champion via `mechatree.genome.load_champion` (or YAML `genome.neural_from`), compare a tree grown with the constant default genome against the species-0 and species-1 champions side-by-side. Uses `data/S3_champions.json`.
-  - `notebooks/04_custom_growth_law.ipynb` — plug in user-supplied `wind_fn` and `sun` callables, vary `ConstantSafety` / `ConstantAllocation`, observe how trunk diameter, canopy depth and pruning rate respond. Companion to [examples/custom_simulation.py](examples/custom_simulation.py).
-  - `notebooks/05_strahler_diagnostics.ipynb` — grow a mature tree, render `plot_strahler_diagnostics` (4-panel: branch count, length, area per Strahler order + Leonardo's-rule histogram), discuss the self-similarity result from the paper. Companion to [examples/plot_strahler.py](examples/plot_strahler.py).
+### Step 2 notes (closed 2026-05-23)
 
-  Ship a commented example YAML alongside the notebooks; refresh `docs/userguide.rst` to point at them.
-- **Step 15 — Callable genome from YAML via SymPy.** Allow `genome.safety` (and allocation fields) to be either a scalar *or* a string expression like `"3 * tanh(max_stress)"`. Parse with `sympy.sympify`, compile with `sympy.lambdify`, wrap as `SymPySafety` / `SymPyAllocation` subclasses of `SafetyModel` / `AllocationModel`. Inputs: the same `(nb_leaves, max_stress)` / `(nb_leaves, vol_relative)` pairs the Fortran NNs took. Validate against an allow-list of free symbols. Useful as a research tool sitting between `Constant*` and `Neural*`.
+`feat: port Cython/C++ library + migrate Sphinx docs (Step 2)` wired the setuptools + Cython build and ported `branch.{h,cpp}` / `tree.{h,cpp}` / `_core.pyx` / `cytree.pxd` into [src/mechatree/_core/](src/mechatree/_core/). `uv pip install -e .` builds the extension on macOS/Linux/Windows.
 
-### Out of scope (do not re-litigate unless explicitly asked)
+### Step 3 notes (closed 2026-05-23)
+
+Pure-Python helpers around the C++ core:
+- [src/mechatree/geometry/](src/mechatree/geometry/) — distance/orientation utilities used by Step-10 light + Step-11 growth.
+- [src/mechatree/plotting/](src/mechatree/plotting/) — 2D/3D renderers, now plotly-only after the May-2026 migration.
+- [examples/](examples/) — recipe-style scripts.
+
+### Step 4 notes (closed 2026-05-23)
+
+Tests exercise the compiled extension directly; a dedicated `test_pytree_memory.py` regression locks in the C++ destructor fix that stopped each `PyTree` from leaking its branch graph on GC.
+
+### Step 5 notes (closed 2026-05-23)
+
+Sphinx scaffolding under [docs/](docs/) using the Furo theme. Real narrative content is still scheduled with Step 13.
+
+### Step 6 notes (closed 2026-05-24)
+
+`.github/workflows/ci.yml` runs lint + pytest across Linux / macOS arm64 / macOS x86_64 / Windows × Python 3.10–3.13. `cibuildwheel` builds platform wheels + an sdist as CI artifacts; Windows-specific bugs were ironed out in `ci bug` / `CI windows bug` commits the same day.
+
+### Step 8 notes (closed 2026-05-23)
+
+`docs/design.rst` captures the `Leaf` / `Branch` shapes, the YAML schema, the public API, callback signatures, and the C++/Python boundary. Drafted before code so Steps 9–12 had a target.
+
+### Step 9 notes (closed 2026-05-23)
+
+Mechanics + growth + pruning lowered into the compiled core. Genome callbacks (`SafetyModel`, `AllocationModel`) plug in via a C++ vtable from the Cython boundary — see `genome.h`. Files:
+- `wind_force`, `calculate_stresses` → [src/mechatree/_core/mechanics.cpp](src/mechatree/_core/mechanics.cpp)
+- `requested_growth`, `primary_growth`, `secondary_growth` → [src/mechatree/_core/growth.cpp](src/mechatree/_core/growth.cpp)
+- `pruning`, `cut_branch` → [src/mechatree/_core/pruning.cpp](src/mechatree/_core/pruning.cpp)
+
+### Step 10 notes (closed 2026-05-23)
+
+`light interception ported` — [src/mechatree/light/](src/mechatree/light/) hosts `light_interception` / `light_on_trees`, pure-Python on a `Leaves` collection + `Sun` model. Decoupling lets the same module score a single tree, a `Forest`, or any leaf cloud (e.g. LiDAR).
+
+### Step 11 notes (closed 2026-05-23)
+
+`single-tree simulator` — `mechatree.simulate.grow_tree(config)` walks the Fortran `{light → stresses → growth → pruning → seeds/leaves → ordering}` loop. The orchestrator is intentionally Python — at most ten C++/NumPy calls per generation. Example at [examples/grow_one_tree.py](examples/grow_one_tree.py).
+
+### Step 12 notes (closed 2026-05-23)
+
+`forest port` — `mechatree.forest.Forest` owns N trees with disk layout, birth/death lifecycle, and cross-tree light competition through the Step-10 module on the concatenated leaf list. Wind is currently shared across all trees in a generation.
+
+### Step 14 notes (closed 2026-05-24)
+
+`default safety updated` — scalars `safety`, `p_seeds`, `p_leaves`, `phototropism` live under a `genome:` block in YAML, populated via [`GenomeConfig`](src/mechatree/config.py). Default `safety = 3.0` reproduces the value the Fortran neural net evolved to. `grow_tree` / `Forest` build `ConstantSafety` / `ConstantAllocation` from those values when no explicit model is passed.
+
+### Step 16 notes (closed 2026-05-24)
+
+`import genome from Nat Comms` — Fortran 3-layer tanh networks (`mod_tree.f90:735 neural_branch`, `:771 neural_reserve`) ported as header-only C++ in [src/mechatree/_core/genome.h](src/mechatree/_core/genome.h), wrapped at the Cython boundary as `PyNeuralSafety` / `PyNeuralAllocation`, and re-exported from `mechatree.genome`. Champion weight vectors load via `mechatree.genome.load_champion(path, species_id)` from a JSON file written by [scripts/strategies_single_tree.py](scripts/strategies_single_tree.py); the reference dataset is [data/S3_champions.json](data/S3_champions.json). YAML configs can select a neural genome via `genome.neural_from: {path, species_id}` (path resolved relative to the YAML file). The C++ port is verified against the Python reference to `atol=1e-12` at every grid point.
+
+### Step 13 notes (closed 2026-05-25)
+
+Five plotly-inline Jupyter tutorials under [notebooks/](notebooks/), each a literate-programming companion to an `examples/` script. Markdown prose between cells walks through the science; code cells run end-to-end against the canonical YAML config. Verified by executing all five via `jupyter nbconvert --execute`; outputs stripped back out via `nbstripout` per the [notebooks/README.md](notebooks/README.md) convention.
+
+- [01_grow_one_tree.ipynb](notebooks/01_grow_one_tree.ipynb) — companion to [examples/grow_one_tree.py](examples/grow_one_tree.py). Walks the per-generation loop and renders the Strahler-coloured 3D canopy + leaves.
+- [02_forest_under_wind.ipynb](notebooks/02_forest_under_wind.ipynb) — companion to [examples/grow_a_forest.py](examples/grow_a_forest.py). Population & biomass over time + final top-down stand + the Yoda −3/2 self-thinning curve.
+- [03_neural_genome.ipynb](notebooks/03_neural_genome.ipynb) — loads the two S3 champions from [data/S3_champions.json](data/S3_champions.json) and renders them side-by-side against the default constant genome.
+- [04_custom_growth_law.ipynb](notebooks/04_custom_growth_law.ipynb) — companion to [examples/custom_simulation.py](examples/custom_simulation.py). Plug-in `wind_fn` / `Sun` / `ConstantSafety` / `ConstantAllocation`.
+- [05_strahler_diagnostics.ipynb](notebooks/05_strahler_diagnostics.ipynb) — companion to [examples/plot_strahler.py](examples/plot_strahler.py). Horton–Strahler scaling, Leonardo's rule, Tokunaga matrix.
+
+[docs/userguide.rst](docs/userguide.rst) gained a `.. _canopy-aware-wind:` section pointing at Step 17's DendroFlow bridge and corrected the `wind_fn` type signature (2-arg or 3-arg). A dedicated canopy-aware-wind notebook is a sensible follow-up but wasn't required for Step 13's planned scope.
+
+### Step 15 notes (closed 2026-05-25)
+
+Closed-form genome expressions via SymPy. Two paths landed together:
+
+- **C++ side**: new vtable subclasses `CallbackSafety` / `CallbackAllocation` in [src/mechatree/_core/genome.h](src/mechatree/_core/genome.h). Each holds a function pointer + opaque `void* user_data`. The Cython shims (`_safety_callback` / `_allocation_callback`) cast `user_data` back to the Python callable and invoke it `with gil`. Errors in the Python callback are swallowed (zero-fallback + stderr log) because the C++ growth loop has no exception channel.
+- **Python side**: [src/mechatree/sympy_genome.py](src/mechatree/sympy_genome.py) exposes `sympy_safety(expr)` and `sympy_allocation(p_seeds, p_leaves, phototropism)` factories. They `sympify` the expression, validate the free-symbol set against the allow-list (`nb_leaves`, `max_stress` for safety; `nb_leaves`, `vol_relative` for allocation), and `lambdify(modules="numpy")` into a Python callable that the C++ side calls per branch.
+- **YAML**: `GenomeConfig.safety` / `p_seeds` / `p_leaves` / `phototropism` are now `float | str`. `models_from_config` dispatches: any field is a string → SymPy path; otherwise unchanged.
+- **Optional extra**: `mechatree[sympy]` brings in `sympy>=1.12`. Without it, the SymPy path raises `ImportError` with the install hint.
+- Tests at [tests/test_sympy_genome.py](tests/test_sympy_genome.py) (23 cases) — exercises the C++ vtable shim independently of SymPy, then the SymPy parsing/validation, end-to-end through `grow_tree`, and the YAML → `Config` → `models_from_config` round-trip. Recipe: [examples/sympy_genome.py](examples/sympy_genome.py) + [examples/sympy_genome.yaml](examples/sympy_genome.yaml).
+
+### Step 17 notes (closed 2026-05-25)
+
+[src/mechatree/wind/dendroflow.py](src/mechatree/wind/dendroflow.py) wraps DendroFlow's `BulkThinningBranchWindModel` (M4 of DendroFlow) as a streamwise canopy-mean `WindFn`. Wiring:
+- New optional extra `mechatree[dendroflow]` ([pyproject.toml](pyproject.toml)) — DendroFlow isn't on PyPI yet, so the README hint is `uv pip install -e ../DendroFlow`.
+- `WindFn` widened to `Callable[..., (x,y,z)]` and arity-detected at the call site, mirroring the `on_step` pattern. 2-arg callables still work.
+- YAML `wind:` block with `model: dendroflow` (or `default`) selects the bridge automatically in `grow_tree` and `Forest` ([src/mechatree/config.py](src/mechatree/config.py)).
+- Forest pools every tree's branches into a **single** `Cylinders` per generation; the resulting `canopy_mean` becomes the shared wind vector applied to all trees in pruning.
+- Tests at [tests/test_wind_dendroflow.py](tests/test_wind_dendroflow.py); example recipe at [examples/dendroflow_wind.py](examples/dendroflow_wind.py) + [examples/dendroflow_wind.yaml](examples/dendroflow_wind.yaml).
+
+### Notes on pending steps
+
+All pending steps are release-engineering (Step 7 — TestPyPI dry-run; Step 18 — stable PyPI). No design work outstanding.
+
+## Out of scope (do not re-litigate unless explicitly asked)
 
 - **Evolution** (`legacy_fortran/EvoluAlgo.f90`, `legacy_fortran/mod_evolu.f90`) — deferred, possibly a separate package later. Per the design principle above, evolution is external to the core library.
+
+## How to update this file
+
+**Update CLAUDE.md after substantive changes.** When a roadmap step lands:
+
+1. Flip its row in the table from `⬜ pending` / `🚧 wip` to `✅ done`.
+2. Add a `### Step N notes (closed YYYY-MM-DD)` subsection below the table — one short paragraph + bullets, in the shape used for closed steps above.
+3. Add a corresponding entry to [CHANGELOG.md](CHANGELOG.md) under `## [Unreleased]`, using Keep-a-Changelog `### Added` / `### Changed` / `### Fixed` headings.
+
+For new work introduced mid-stream, add a fresh table row before doing the implementation so the roadmap stays the source of truth. Trivial changes (typos, single-line fixes, formatting-only) don't need an update; anything that adds/changes a module, public function, YAML key, or test file does.

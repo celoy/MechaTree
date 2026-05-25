@@ -17,12 +17,15 @@ from libcpp.vector cimport vector
 from mechatree._core.cytree cimport (
     AllocationModel,
     Branch,
+    CallbackAllocation,
+    CallbackSafety,
     ConstantAllocation,
     ConstantSafety,
     NeuralAllocation,
     NeuralSafety,
     SafetyModel,
     Tree,
+    allocation_callback_fn,
     array3d,
     cpp_calculate_stresses,
     cpp_primary_growth,
@@ -30,6 +33,7 @@ from mechatree._core.cytree cimport (
     cpp_requested_growth,
     cpp_secondary_growth,
     cpp_wind_force,
+    safety_callback_fn,
 )
 
 
@@ -635,3 +639,108 @@ cdef class PyNeuralAllocation(PyAllocationModel):
         for i in range(18):
             out[i] = w[i]
         return out
+
+
+# ----------------------------------------------------------------------------
+# Callback-driven safety / allocation (Step 15)
+#
+# These thread a Python callable through the C++ vtable that growth.cpp calls.
+# The C++ side stores a function pointer + an opaque user-data void*; the
+# Cython shim casts that void* back to the Python object and invokes it. The
+# `with gil` annotation lets the shim re-acquire the GIL if growth is ever
+# called from a `with nogil:` block in the future (today it is not).
+# ----------------------------------------------------------------------------
+
+cdef double _safety_callback(int nb_leaves, double max_stress,
+                             void* user_data) noexcept with gil:
+    cdef object py_callable = <object>user_data
+    try:
+        return float(py_callable(nb_leaves, max_stress))
+    except BaseException as exc:
+        # The C++ growth loop has no error-propagation channel; the safest
+        # fallback is to return a benign value and let the Python caller pick
+        # up the exception on the next callable.compute() they make directly.
+        # Print to stderr so the failure isn't silent.
+        import sys
+        sys.stderr.write(
+            f"PyCallbackSafety callback raised: {type(exc).__name__}: {exc}\n"
+        )
+        return 0.0
+
+
+cdef void _allocation_callback(int nb_leaves, double vol_relative,
+                               double* p_seeds, double* p_leaves,
+                               double* phototropism,
+                               void* user_data) noexcept with gil:
+    cdef object py_callable = <object>user_data
+    cdef tuple result
+    try:
+        result = tuple(py_callable(nb_leaves, vol_relative))
+    except BaseException as exc:
+        import sys
+        sys.stderr.write(
+            f"PyCallbackAllocation callback raised: "
+            f"{type(exc).__name__}: {exc}\n"
+        )
+        p_seeds[0] = 0.0
+        p_leaves[0] = 0.0
+        phototropism[0] = 0.0
+        return
+    if len(result) != 3:
+        import sys
+        sys.stderr.write(
+            f"PyCallbackAllocation callback returned {len(result)} values; "
+            f"expected 3 (p_seeds, p_leaves, phototropism)\n"
+        )
+        p_seeds[0] = 0.0
+        p_leaves[0] = 0.0
+        phototropism[0] = 0.0
+        return
+    p_seeds[0] = float(result[0])
+    p_leaves[0] = float(result[1])
+    phototropism[0] = float(result[2])
+
+
+cdef class PyCallbackSafety(PySafetyModel):
+    """Safety model backed by an arbitrary Python callable.
+
+    ``fn`` is invoked as ``fn(nb_leaves: int, max_stress: float) -> float``
+    every time the C++ growth loop needs a safety factor. Use this to plug
+    in a SymPy-compiled expression (:func:`mechatree.sympy_genome.sympy_safety`),
+    a hand-written closure, or any other Python decision function.
+
+    The callable is kept alive by the wrapper for the lifetime of the model.
+    """
+
+    cdef object _py_callable
+
+    def __cinit__(self, fn):
+        if not callable(fn):
+            raise TypeError("PyCallbackSafety expects a callable")
+        self._py_callable = fn
+        # Pass a borrowed PyObject* — _py_callable keeps it alive.
+        self._model = new CallbackSafety(
+            <safety_callback_fn>_safety_callback,
+            <void*>fn,
+        )
+
+
+cdef class PyCallbackAllocation(PyAllocationModel):
+    """Allocation model backed by an arbitrary Python callable.
+
+    ``fn`` is invoked as ``fn(nb_leaves: int, vol_relative: float) ->
+    (p_seeds, p_leaves, phototropism)`` every time the C++ allocation step
+    needs reserve splits. Returning a sequence other than length-3 logs an
+    error and falls back to ``(0, 0, 0)``.
+    """
+
+    cdef object _py_callable
+
+    def __cinit__(self, fn):
+        if not callable(fn):
+            raise TypeError("PyCallbackAllocation expects a callable")
+        self._py_callable = fn
+        self._model = new CallbackAllocation(
+            <allocation_callback_fn>_allocation_callback,
+            <void*>fn,
+        )

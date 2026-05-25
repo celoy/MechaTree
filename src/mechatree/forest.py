@@ -24,9 +24,10 @@ from mechatree.growth import primary_growth, requested_growth, secondary_growth
 from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
 from mechatree.mechanics import calculate_stresses
 from mechatree.pruning import prune
-from mechatree.simulate import default_wind_fn
+from mechatree.simulate import _callback_arity, _resolve_wind_fn
 
-WindFn = Callable[[int, np.random.Generator], tuple[float, float, float]]
+# See ``mechatree.simulate.WindFn`` for the two accepted arities.
+WindFn = Callable[..., tuple[float, float, float]]
 OnStep = Callable[[int, "Forest", "ForestStats"], None]
 
 
@@ -87,6 +88,7 @@ class Forest:
     trees: list[PyTree] = field(init=False, default_factory=list, repr=False)
     ages: list[int] = field(init=False, default_factory=list, repr=False)
     _next_tree_seed: int = field(init=False, default=0, repr=False)
+    _wind_arity: int = field(init=False, default=2, repr=False)
 
     def __post_init__(self) -> None:
         self.rng = np.random.default_rng(self.seed)
@@ -99,7 +101,8 @@ class Forest:
             if self.allocation is None:
                 self.allocation = default_allocation
         if self.wind_fn is None:
-            self.wind_fn = default_wind_fn
+            self.wind_fn = _resolve_wind_fn(self.config)
+        self._wind_arity = _callback_arity(self.wind_fn)
         if self.sun is None:
             lc = self.config.light
             self.sun = Sun(
@@ -168,7 +171,10 @@ class Forest:
             secondary_growth(tree, volume_per_leaf=volume_per_leaf)
 
         # 3. Pruning under a common wind.
-        wind = self.wind_fn(generation, self.rng)
+        if self._wind_arity >= 3:
+            wind = self.wind_fn(generation, self.rng, self)
+        else:
+            wind = self.wind_fn(generation, self.rng)
         for tree in self.trees:
             prune(tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy)
             tree.reorder()
