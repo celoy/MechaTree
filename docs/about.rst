@@ -29,5 +29,5 @@ Acknowledgments
 The original Python + Cython + C++ port of the simulator was written in 2017
 by **Diego Bengochea Paz** (ORCID `0000-0002-0835-3981
 <https://orcid.org/0000-0002-0835-3981>`_) during an internship. That code is
-preserved under ``archive/`` for provenance, and the modernization in
+preserved under ``legacy/pytree/`` for provenance, and the modernization in
 ``src/mechatree/`` is a direct descendant of his work.

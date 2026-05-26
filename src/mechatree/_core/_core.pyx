@@ -683,7 +683,7 @@ cdef class PyConstantAllocation(PyAllocationModel):
 cdef class PyNeuralSafety(PySafetyModel):
     """3-layer tanh `neural_branch` network (10 weights, gene-domain [0, 1]).
 
-    Mirrors ``legacy_fortran/mod_tree.f90:735``. Each gene is decoded with
+    Mirrors ``legacy/fortran/mod_tree.f90:735``. Each gene is decoded with
     ``tan((g - 0.5) * pi * 0.99)`` then folded into M1 (3x2) and M2 (1x4)
     Fortran-order matrices with two entries pinned to zero by evolutionary
     constraint. The 0.01 scaling on ``nb_leaves`` lives inside the C++ forward
@@ -714,7 +714,7 @@ cdef class PyNeuralSafety(PySafetyModel):
 cdef class PyNeuralAllocation(PyAllocationModel):
     """3-layer tanh `neural_reserve` network (18 weights, gene-domain [0, 1]).
 
-    Mirrors ``legacy_fortran/mod_tree.f90:771``. 3-output net feeding back
+    Mirrors ``legacy/fortran/mod_tree.f90:771``. 3-output net feeding back
     ``(p_seeds, p_leaves, phototropism)`` with the per-output clip and the
     ``p_seeds + p_leaves > 1`` renormalisation from the Fortran reference.
     """

@@ -62,7 +62,7 @@ private:
     double p_seeds_, p_leaves_, phototropism_;
 };
 
-// 3-layer tanh networks ported from legacy_fortran/mod_tree.f90:735 (neural_branch)
+// 3-layer tanh networks ported from legacy/fortran/mod_tree.f90:735 (neural_branch)
 // and :771 (neural_reserve). Each gene g in [0,1] is decoded into a network
 // weight via tan((g - 0.5) * π * 0.99). The 3×2 input matrix M1 has two entries
 // pinned to zero by evolutionary constraint (M1[0,0] and M1[2,1]).

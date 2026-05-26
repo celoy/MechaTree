@@ -1,6 +1,6 @@
 """YAML configuration for the single-tree simulator (Step 11).
 
-Direct translation of the parameters in ``legacy_fortran/Forest.ini``, regrouped
+Direct translation of the parameters in ``legacy/fortran/Forest.ini``, regrouped
 semantically and renamed to ``snake_case``. The Fortran names are noted in
 docstrings so cross-referencing the paper or the legacy code stays mechanical.
 
@@ -25,7 +25,7 @@ class TreeConfig:
 
     Mirrors the ``tree:`` section of the YAML and the branching-angle scalars
     that the Fortran ``new_tree`` derives from the genome. Defaults match
-    ``legacy_fortran/Forest.ini``.
+    ``legacy/fortran/Forest.ini``.
     """
 
     # Direct YAML inputs --------------------------------------------------
@@ -312,7 +312,7 @@ class ForestConfig:
     """Parameters for a forest of trees (Step 12).
 
     ``n_trees_init`` trees are seeded uniformly across a disk of radius
-    ``size``. The death rule mirrors ``legacy_fortran/Forest.f90:283`` and
+    ``size``. The death rule mirrors ``legacy/fortran/Forest.f90:283`` and
     is configurable so studies of self-thinning can tweak it without
     forking the orchestrator.
     """

@@ -5,10 +5,10 @@ A Genome is 31 floats: 3 raw "angle genes" (mapped to ``theta1``,
 :func:`mechatree.genome._decode_angles` formula at use time), 10 weights
 for the per-branch safety NN, and 18 weights for the reserve allocation
 NN. Layout matches the coding part of the Fortran genome in
-``legacy_fortran/mod_tree.f90:47-52``.
+``legacy/fortran/mod_tree.f90:47-52``.
 
 Mutation operates per-locus with Gaussian noise (Fortran defaults
-``sigma=0.005``, ``p_locus=0.05`` from ``legacy_fortran/Evolution.ini``).
+``sigma=0.005``, ``p_locus=0.05`` from ``legacy/fortran/Evolution.ini``).
 Weights are clipped to ``[0, 1]``; angle genes are left unclamped — the
 existing decoder scales by π / 2π so values outside ``[0, 1]`` just give
 slightly larger angles, no harm done.

@@ -28,7 +28,7 @@ uv run ruff format .             # format
 
 - New Python/Cython/C++ code goes in `src/mechatree/`.
 - Tests go in `tests/`.
-- `archive/` and `legacy_fortran/` are **reference only** — don't edit, don't import from.
+- `legacy/` is **reference only** — don't edit, don't import from.
 
 ## Branches & PRs
 

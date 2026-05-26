@@ -4,7 +4,9 @@ Run `uv run python benchmarks/bench_*.py` to reproduce. Numbers below were
 captured on an Apple Silicon Mac (Darwin 25.4, Python 3.12.6) — your
 mileage will vary in absolute terms, but the **scaling** is what matters.
 
-Phase 0 = unmodified port from `archive/PyTreeLib/`.
+Phase 0 = the unmodified 2017 port (originally `archive/PyTreeLib/`,
+dropped during the 2026-05-26 legacy consolidation; the kept twin lives
+at `legacy/pytree/`).
 Phase 4 = modernized core with O(1) `branch_to_index` lookup, single-pointer
 parent links, and `unordered_map` for branch properties.
 
@@ -88,7 +90,7 @@ super-linear because `addBranchWithGeometry` rebuilds `branch_to_index`
 across the tail of the vector per insertion — fine for now, the hot path
 to fix once a Fortran reference is in hand.
 
-A Fortran reference column will be added once `legacy_fortran/tree.f90`
+A Fortran reference column will be added once `legacy/fortran/tree.f90`
 is set up to dump per-phase wall times on the same machine.
 
 ## bench_light — light interception over N leaves (Step 10)

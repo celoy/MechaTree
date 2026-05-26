@@ -1,7 +1,7 @@
 /*
  * Light interception — C++ kernel for the per-direction shadow sort.
  *
- * Ports the body of legacy_fortran/mod_tree.f90:219 (light_interception)
+ * Ports the body of legacy/fortran/mod_tree.f90:219 (light_interception)
  * across the whole sun direction grid. One call covers every (leaf, direction)
  * pair; the Python wrapper in mechatree.light.interception.intercept just
  * passes the leaf-position buffer and sun arrays through.

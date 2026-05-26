@@ -11,7 +11,7 @@ Run with::
     uv run python examples/grow_a_forest.py --iterations 200 --seed 42 \\
         --n-trees-init 30 --size 50
 
-This is the user-facing equivalent of ``legacy_fortran/Forest.f90`` — a
+This is the user-facing equivalent of ``legacy/fortran/Forest.f90`` — a
 crowded plot of trees competing for light, with the storm wind culling
 the over-extended.
 """

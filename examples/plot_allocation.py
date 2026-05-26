@@ -6,7 +6,7 @@ plot helper lives in the library; this script is a thin wrapper that
 collects :class:`mechatree.simulate.TreeStats` history via the
 ``on_step`` callback and feeds it to the plot.
 
-Python port of ``../Eloy2017_NatComm_archive/plot_allocation_vs_t.m``.
+Python port of ``legacy/matlab/plot_allocation_vs_t.m``.
 
 Run with::
 

@@ -6,7 +6,7 @@ single-generation pipeline (stress -> requested_growth -> secondary_growth
 it's a fixed-size benchmark so per-phase timings are comparable across runs.
 
 Step 9 ships this as a data-collection script, not a CI gate. Compare
-against a Fortran reference (legacy_fortran/tree.f90 on a matched seed)
+against a Fortran reference (legacy/fortran/tree.f90 on a matched seed)
 when one is available.
 """
 

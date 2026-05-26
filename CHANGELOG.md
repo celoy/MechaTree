@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Legacy folder consolidation (2026-05-26)
+
+- Consolidated legacy material under a single top-level `legacy/` directory.
+  - `legacy_fortran/` → `legacy/fortran/` (history preserved via `git mv`).
+  - `archive/CommentedLibrary_and_Doc/` → `legacy/pytree/` (history preserved).
+  - New `legacy/matlab/` holds the MATLAB analysis scripts from the paper workflow (previously local-only at `~/Documents/Python/Eloy2017_NatComm_archive/*.m`).
+  - New `legacy/pdf/` holds the paper (`s41467-017-00995-6.pdf`) and the Supplementary Information (`SI11.pdf`).
+  - The near-duplicate `archive/PyTreeLib/` was dropped; its three example scripts already have modern equivalents under `examples/` (`random_growth.py`, `sap_transport.py`, `self_avoiding.py`).
+- New consolidated [`legacy/README.md`](legacy/README.md) replaces the two old per-folder READMEs and maps each MATLAB script to its modern Python port.
+- Path references swept across source comments, docstrings, examples, benchmarks, [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), [docs/about.rst](docs/about.rst), [docs/design.rst](docs/design.rst), [docs/userguide.rst](docs/userguide.rst), [benchmarks/baseline.md](benchmarks/baseline.md), and [CLAUDE.md](CLAUDE.md).
+- Config: [pyproject.toml](pyproject.toml) `[tool.ruff].extend-exclude` and [.pre-commit-config.yaml](.pre-commit-config.yaml) `exclude:` both retargeted to `^legacy/`.
+- No behavioural change in the modern package — comment/docstring-level rewrites only.
+
 ### Added — Step 25: Tunable wind statistics + native bulk-thinning + storm replay + explainer notebook
 
 - [`mechatree.wind.distributions`](src/mechatree/wind/distributions.py) — SymPy-driven inverse-CDF sampling. `Distribution(cdf_expr, var_name, support).sampler()` compiles to a `(rng, n) -> ndarray` callable. Symbolic inversion via `sympy.solve` validated by round-tripping through the original CDF on a 25-point probe (rejects branches that pass an endpoint check but pick the wrong complex root). Falls back to a 1024-point `np.interp` lookup when symbolic inversion fails. Built-in pure-NumPy fast paths skip SymPy entirely: `default_amplitude_sampler` reproduces the Fortran `0.835 - log(U)/6`, `uniform_angle_sampler` is uniform on `[0, 2π)`, `legacy_angle_sampler` returns the original 4 fixed sensing angles.

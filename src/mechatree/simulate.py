@@ -1,6 +1,6 @@
 """Single-tree simulator — orchestrates the per-generation pipeline.
 
-Mirrors ``legacy_fortran/tree.f90``'s ``time_step`` loop. Per generation:
+Mirrors ``legacy/fortran/tree.f90``'s ``time_step`` loop. Per generation:
 
 1. Light: extract leaves -> intercept -> aggregate.
 2. Mechanics: 4-angle stress sweep.
@@ -197,7 +197,7 @@ def make_default_wind_fn(
 
 
 def make_seed_tree(config: TreeConfig) -> PyTree:
-    """Construct the initial trunk per ``legacy_fortran/mod_tree.f90`` ``new_tree``.
+    """Construct the initial trunk per ``legacy/fortran/mod_tree.f90`` ``new_tree``.
 
     location = (0, 0, 0), unit_t = (0, 0, 1), unit_b = (1, 0, 0).
     length = twig_length, diameter = twig_diameter, reserve = 2 * volume_twig.

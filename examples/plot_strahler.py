@@ -5,7 +5,7 @@ CLI demo for :func:`mechatree.plotting.plot_strahler_diagnostics`. The
 reusable plot helper lives in the library; this script is a thin wrapper
 that grows a tree and feeds it to the plot.
 
-Python port of the MATLAB scripts in ``../Eloy2017_NatComm_archive/``:
+Python port of the MATLAB scripts in ``legacy/matlab/``:
 ``plot_stat_single_tree.m`` + ``Fractal_dim.m`` +
 ``plot_area_preservation_1tree.m``.
 

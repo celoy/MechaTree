@@ -2,7 +2,7 @@
  * Growth implementation. See growth.h for the public contract.
  *
  * All three functions are direct ports of the Fortran reference; line
- * numbers in the comments below refer to legacy_fortran/mod_tree.f90.
+ * numbers in the comments below refer to legacy/fortran/mod_tree.f90.
  */
 
 #include "growth.h"

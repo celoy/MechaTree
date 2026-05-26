@@ -107,7 +107,7 @@ Simulating a single tree
 ========================
 
 The :func:`mechatree.simulate.grow_tree` orchestrator reproduces
-``legacy_fortran/tree.f90``: starting from a one-twig seedling it
+``legacy/fortran/tree.f90``: starting from a one-twig seedling it
 iterates light → stresses → growth → pruning → branching → reserve
 accounting once per generation. Configuration lives in a YAML file with
 defaults from the original Forest.ini.
@@ -145,7 +145,7 @@ Simulating a forest
 ===================
 
 For many trees competing for light, use :class:`mechatree.forest.Forest`
-— a direct port of ``legacy_fortran/Forest.f90``. Trees are placed
+— a direct port of ``legacy/fortran/Forest.f90``. Trees are placed
 uniformly across a disk; light interception runs over the union of all
 their leaves, so cross-tree shading happens automatically.
 

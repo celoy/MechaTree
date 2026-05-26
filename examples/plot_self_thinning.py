@@ -5,7 +5,7 @@ CLI demo for :func:`mechatree.plotting.plot_self_thinning`. The reusable
 plot helper lives in the library; this script is a thin wrapper that
 simulates a forest and feeds its per-step stats history to the plot.
 
-Python port of ``../Eloy2017_NatComm_archive/self_thinning.m``.
+Python port of ``legacy/matlab/self_thinning.m``.
 
 Run with::
 

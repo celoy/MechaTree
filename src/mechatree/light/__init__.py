@@ -1,4 +1,4 @@
-"""Light interception — port of ``legacy_fortran/mod_tree.f90`` light routines.
+"""Light interception — port of ``legacy/fortran/mod_tree.f90`` light routines.
 
 Independent of ``PyTree`` at the algorithm layer: ``intercept`` takes only
 a ``Leaves`` (struct of arrays) and a ``Sun`` (direction grid). The only

@@ -1,5 +1,5 @@
 """Plotly ports of the MATLAB analysis scripts in
-``../Eloy2017_NatComm_archive/``.
+``legacy/matlab/``.
 
 Each helper takes pre-computed simulation data (a tree, a forest, or a
 history of stats objects) and returns the

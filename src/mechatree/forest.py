@@ -1,6 +1,6 @@
 """Forest container — many trees on a disk with light competition (Step 12).
 
-Mirrors ``legacy_fortran/Forest.f90``'s main loop. Cross-tree light
+Mirrors ``legacy/fortran/Forest.f90``'s main loop. Cross-tree light
 competition falls out of the Step-10 light module operating on the union
 of every tree's leaves — no special-case code needed.
 

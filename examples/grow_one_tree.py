@@ -9,7 +9,7 @@ Run with::
     uv run python examples/grow_one_tree.py
     uv run python examples/grow_one_tree.py --iterations 200 --seed 42
 
-This is the user-facing equivalent of ``legacy_fortran/tree.f90`` — a
+This is the user-facing equivalent of ``legacy/fortran/tree.f90`` — a
 single tree growing under wind and light.
 """
 

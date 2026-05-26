@@ -1,6 +1,6 @@
 """Sun direction grid for hemispherical light integration.
 
-Ports the elevation / azimuth construction from ``legacy_fortran/tree.f90:139``::
+Ports the elevation / azimuth construction from ``legacy/fortran/tree.f90:139``::
 
     elev(k) = acos((i - 0.5) / Nelev)        i = 1..Nelev
     azim(k) = 2*pi * (j - 1) / Nazim          j = 1..Nazim

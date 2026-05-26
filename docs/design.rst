@@ -11,7 +11,7 @@ production code is written at this stage — the design exists so it can
 be reviewed before any C++ is touched.
 
 The reference implementation is Fortran 90, preserved verbatim under
-``legacy_fortran/``. The physics is documented in Eloy *et al.*,
+``legacy/fortran/``. The physics is documented in Eloy *et al.*,
 *Nat. Commun.* 8:1014 (2017).
 
 Out of scope at this design stage:
@@ -124,7 +124,7 @@ and small examples; it is not used in the hot path.
 YAML configuration schema
 =========================
 
-The schema is a direct translation of ``legacy_fortran/Forest.ini``,
+The schema is a direct translation of ``legacy/fortran/Forest.ini``,
 regrouped semantically and renamed to ``snake_case``. The Fortran names
 appear as comments so cross-referencing the paper or legacy code stays
 easy.
@@ -176,7 +176,7 @@ Genome callbacks
 ================
 
 The two Fortran decision functions ``neural_branch`` and ``neural_reserve``
-(``legacy_fortran/mod_tree.f90:735`` and ``:771``) become a ``Genome``
+(``legacy/fortran/mod_tree.f90:735`` and ``:771``) become a ``Genome``
 protocol with two tiers: a documentation-grade per-branch API and a
 batched API that is the actual hot path.
 
@@ -271,7 +271,7 @@ dataclass. The single-tree entry point reads from it:
        n_generations: int,
        seed: Optional[int] = None,
    ) -> PyTree:
-       """Single-tree main loop. Mirrors legacy_fortran/tree.f90."""
+       """Single-tree main loop. Mirrors legacy/fortran/tree.f90."""
 
 A minimal run:
 
@@ -469,7 +469,7 @@ Risks that are inside the budget and need attention at Step 9:
 Single-tree orchestration loop
 ==============================
 
-Python pseudo-code mirroring ``legacy_fortran/tree.f90:175-238``:
+Python pseudo-code mirroring ``legacy/fortran/tree.f90:175-238``:
 
 .. code-block:: python
 

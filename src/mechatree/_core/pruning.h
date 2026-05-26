@@ -1,7 +1,7 @@
 /*
  * Pruning — wind-driven stochastic branch removal.
  *
- * Ported from legacy_fortran/mod_tree.f90:850 (subroutine pruning). Unlike
+ * Ported from legacy/fortran/mod_tree.f90:850 (subroutine pruning). Unlike
  * `calculate_stresses` which sweeps four angles, pruning evaluates one
  * specific wind direction U — the "what cuts under this gust" question.
  *

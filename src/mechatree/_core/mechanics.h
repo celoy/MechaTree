@@ -1,7 +1,7 @@
 /*
  * Mechanics — wind force on a branch and stress propagation up the tree.
  *
- * Ported from legacy_fortran/mod_tree.f90:613 (wind_force) and :642
+ * Ported from legacy/fortran/mod_tree.f90:613 (wind_force) and :642
  * (calculate_stresses). The 4-angle sweep that calculate_stresses runs
  * internally matches the Fortran reference; max_stress on each branch is the
  * worst of the four.

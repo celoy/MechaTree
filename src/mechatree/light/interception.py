@@ -1,6 +1,6 @@
 """Light interception and aggregation onto trees.
 
-``intercept`` ports ``legacy_fortran/mod_tree.f90:219`` (light_interception)
+``intercept`` ports ``legacy/fortran/mod_tree.f90:219`` (light_interception)
 across every direction in a ``Sun``. Per direction:
 
 1. Rotate every leaf so the sun is along the new Z axis (``Xp/Yp/Zp``).

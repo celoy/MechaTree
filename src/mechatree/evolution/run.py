@@ -82,7 +82,7 @@ def run_tournament(
         ``[0, n_trees_init)``.
     mutation_sigma, mutation_p_locus
         Per-locus Gaussian mutation parameters; Fortran defaults from
-        ``legacy_fortran/Evolution.ini``.
+        ``legacy/fortran/Evolution.ini``.
     archive_every
         If set, write ``archive_{gen:08d}.json`` every K generations
         under ``archive_dir``.

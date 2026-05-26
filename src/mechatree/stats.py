@@ -1,5 +1,5 @@
 """Per-tree statistical diagnostics — Python port of the MATLAB plots in
-``../Eloy2017_NatComm_archive/``:
+``legacy/matlab/``:
 
 - ``strahler_summary`` mirrors ``plot_stat_single_tree.m`` and the Strahler-
   order tables emitted by ``mod_tools.f90`` ``save_statistics``.
@@ -417,7 +417,7 @@ def distance_to_leaves(tree: PyTree) -> np.ndarray:
     descendant terminal twig.
 
     Mirrors ``b%distance_leaves`` in the legacy Fortran ``save_area``
-    (``legacy_fortran/mod_tree.f90:1174-1203``); the Fortran constants
+    (``legacy/fortran/mod_tree.f90:1174-1203``); the Fortran constants
     ``0.5`` and ``+1.0`` are the unit-twig instantiation (``length = 1``)
     of this length-aware form. Carrying ``b.length`` lets the metric stay
     correct when branches are merged after pruning and grow past unit length.

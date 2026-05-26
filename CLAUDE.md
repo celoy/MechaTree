@@ -8,8 +8,8 @@ MechaTree is a Python (with Cython + C++) port of a Fortran90 simulator of **tre
 
 ## Lineage
 
-1. **Fortran90 reference code** — written by the user, simulations published in Nat Commun (2017). Sources preserved in `legacy_fortran/`.
-2. **Diego Bengochea Paz's Python port (2017)** — Python + Cython + C++ library that handles tree architectures, written by Diego Bengochea Paz (ORCID [0000-0002-0835-3981](https://orcid.org/0000-0002-0835-3981)) during a 2017 internship. Lightly touched up Feb 2025. Preserved verbatim in `archive/`.
+1. **Fortran90 reference code** — written by the user, simulations published in Nat Commun (2017). Sources preserved in `legacy/fortran/`.
+2. **Diego Bengochea Paz's Python port (2017)** — Python + Cython + C++ library that handles tree architectures, written by Diego Bengochea Paz (ORCID [0000-0002-0835-3981](https://orcid.org/0000-0002-0835-3981)) during a 2017 internship. Lightly touched up Feb 2025. Preserved verbatim in `legacy/pytree/`.
 3. **Modernization (in progress)** — canonical code lives in `src/mechatree/`. See the [Modernization roadmap](#modernization-roadmap) table below for live milestone status.
 
 ## Where code lives
@@ -25,9 +25,7 @@ MechaTree is a Python (with Cython + C++) port of a Fortran90 simulator of **tre
 | `tests/` | Active | Add tests here |
 | `benchmarks/` | Active | Micro-benchmarks + `baseline.md` |
 | `docs/` | Active | Sphinx sources |
-| `archive/PyTreeLib/` | Reference only | Do not edit. Do not import from. |
-| `archive/CommentedLibrary_and_Doc/` | Reference only | Do not edit. Do not import from. |
-| `legacy_fortran/` | Reference only | Do not edit. Not built or run by Python. |
+| `legacy/` | Reference only | All 2017-paper provenance in one place: `legacy/fortran/` (Fortran90 sources), `legacy/matlab/` (analysis scripts), `legacy/pdf/` (paper + SI), `legacy/pytree/` (Diego's Python+Cython+C++ port, was `archive/CommentedLibrary_and_Doc/`). Do not edit. Do not import from. |
 
 ## Build & test commands
 
@@ -50,7 +48,7 @@ uv run ruff format .                     # format
 
 - **Python**: 3.10+. Type hints encouraged. Ruff-formatted (line length 100).
 - **Naming**: scientific naming may mirror the Fortran originals where it aids cross-reference with the paper.
-- **Provenance**: keep `archive/` and `legacy_fortran/` intact — they are intellectual history.
+- **Provenance**: keep `legacy/` intact — it is intellectual history.
 
 ## Who this is for
 
@@ -76,9 +74,9 @@ These principles came out of the user's roadmap notes. They guide all Step-8+ wo
 
 ## What NOT to do
 
-- Don't edit anything under `archive/` or `legacy_fortran/`.
-- Don't import from `archive/` in `src/mechatree/` or `tests/`.
-- Don't re-introduce the 15 GB of simulation outputs / zips / MATLAB scripts that lived in `/Users/Ch/Documents/Python/Eloy2017_NatComm_archive/` (outside the repo, local-only).
+- Don't edit anything under `legacy/`.
+- Don't import from `legacy/` in `src/mechatree/` or `tests/`.
+- Don't re-introduce the rest of the 15 GB of simulation outputs / zips that live in `/Users/Ch/Documents/Python/Eloy2017_NatComm_archive/` (outside the repo, local-only). Only the MATLAB analysis scripts and the paper + SI PDFs were brought in — under `legacy/matlab/` and `legacy/pdf/`.
 - Don't create git commits on `main` or push to `main`. The user manages all commits on the main branch themselves — stage changes and surface diffs, but leave `git commit`/`git push` to them. (This overrides Claude Code's default willingness to commit when explicitly asked, unless the user reconfirms in the current session.)
 
 ## Modernization roadmap
@@ -186,9 +184,9 @@ Five plotly-inline Jupyter tutorials under [notebooks/](notebooks/), each a lite
 
 [docs/userguide.rst](docs/userguide.rst) gained a `.. _canopy-aware-wind:` section pointing at Step 17's DendroFlow bridge and corrected the `wind_fn` type signature (2-arg or 3-arg). A dedicated canopy-aware-wind notebook is a sensible follow-up but wasn't required for Step 13's planned scope.
 
-**Notebook 06 `<l>` follow-up (2026-05-25):** the original SI Fig. S8(b) `<l>` trace was using `HortonSummary.mean_length`, which is the per-Horton-stream chain length (sum of unit segments per stream), not the per-branch recursive distance-to-leaves the paper actually plots. Added two helpers in [src/mechatree/stats.py](src/mechatree/stats.py): `distance_to_leaves(tree)` — length-aware per-branch recursion: terminals → `length / 2`, internals → `length + nb_leaves`-weighted mean of children's distance. Mirrors Fortran `b%distance_leaves` in `legacy_fortran/mod_tree.f90:1174-1203`, with the Fortran's `+1.0` increment replaced by the branch's actual length so the metric stays correct when post-pruning chain merger ([tree.cpp:502](src/mechatree/_core/tree.cpp#L502)) grows branches past unit length. `mean_distance_to_leaves(tree)` aggregates per Horton rank. `horton_ratios` gained a `mean_length_override` kwarg and a `max_rank` cap; notebook 06 threads `mean_distance_to_leaves` through the former and sets the latter to 7 (matches SI Fig. S12, where the top ranks sit on too few branches to be stable). `HortonSummary.mean_length` keeps its original meaning (per-stream chain length) — useful for histograms of stream geometry, not for the paper's `R_l`.
+**Notebook 06 `<l>` follow-up (2026-05-25):** the original SI Fig. S8(b) `<l>` trace was using `HortonSummary.mean_length`, which is the per-Horton-stream chain length (sum of unit segments per stream), not the per-branch recursive distance-to-leaves the paper actually plots. Added two helpers in [src/mechatree/stats.py](src/mechatree/stats.py): `distance_to_leaves(tree)` — length-aware per-branch recursion: terminals → `length / 2`, internals → `length + nb_leaves`-weighted mean of children's distance. Mirrors Fortran `b%distance_leaves` in `legacy/fortran/mod_tree.f90:1174-1203`, with the Fortran's `+1.0` increment replaced by the branch's actual length so the metric stays correct when post-pruning chain merger ([tree.cpp:502](src/mechatree/_core/tree.cpp#L502)) grows branches past unit length. `mean_distance_to_leaves(tree)` aggregates per Horton rank. `horton_ratios` gained a `mean_length_override` kwarg and a `max_rank` cap; notebook 06 threads `mean_distance_to_leaves` through the former and sets the latter to 7 (matches SI Fig. S12, where the top ranks sit on too few branches to be stable). `HortonSummary.mean_length` keeps its original meaning (per-stream chain length) — useful for histograms of stream geometry, not for the paper's `R_l`.
 
-**`volume_ratio_leaf` default 8.0 → 4.0 (2026-05-25):** the original MechaTree default `volume_ratio_leaf = 8.0` mirrored `legacy_fortran/Forest.ini` (an older PNAS-submission tarball). The Nat Commun revision used `VolumeRatioLeaf = 4.0d0` per `~/Documents/Arbres/FORTRAN/ART_Revision2/Forest_reference.ini` and `…/ART_Revision2b/Forest_reference.ini` (the figure caption in SI Fig. S12 confirms `V_prod = 4 V_0 l`). At 200 yr with the species-0 S3 champion the over-production halves: 77k → 8k branches, matching the paper's ~10⁴. [config.py:36](src/mechatree/config.py#L36) + [examples/forest.yaml](examples/forest.yaml) + [tests/test_config.py](tests/test_config.py) updated; `legacy_fortran/Forest.ini` left untouched per the provenance rule.
+**`volume_ratio_leaf` default 8.0 → 4.0 (2026-05-25):** the original MechaTree default `volume_ratio_leaf = 8.0` mirrored `legacy/fortran/Forest.ini` (an older PNAS-submission tarball). The Nat Commun revision used `VolumeRatioLeaf = 4.0d0` per `~/Documents/Arbres/FORTRAN/ART_Revision2/Forest_reference.ini` and `…/ART_Revision2b/Forest_reference.ini` (the figure caption in SI Fig. S12 confirms `V_prod = 4 V_0 l`). At 200 yr with the species-0 S3 champion the over-production halves: 77k → 8k branches, matching the paper's ~10⁴. [config.py:36](src/mechatree/config.py#L36) + [examples/forest.yaml](examples/forest.yaml) + [tests/test_config.py](tests/test_config.py) updated; `legacy/fortran/Forest.ini` left untouched per the provenance rule.
 
 ### Step 15 notes (closed 2026-05-25)
 
@@ -222,7 +220,7 @@ Per-cell light interception is now `light = tau ** depth`, where `depth` is each
 Unified figure styling, MATLAB / Nat Commun 2017 look, plotly-native.
 
 - **Module**: [src/mechatree/plotting/figstyle.py](src/mechatree/plotting/figstyle.py) registers a `go.layout.Template` under `pio.templates["mechatree"]` and exposes `apply()` / `figure(size, aspect)` / `subplots(...)` / `figure_3d(...)` / `save(fig, name)` plus the `COLORS`, `SIZES`, `FONT` dicts. API names match [SoftMobility's `figstyle.py`](../SoftMobility/softmobility/classes/figstyle.py); template shape mirrors [SoftMobility's `figstyle_plotly_legacy.py`](../SoftMobility/softmobility/drafts/figstyle_plotly_legacy.py) but with `ticks="inside"` (true MATLAB default) instead of `"outside"`. The 4-sided `mirror=True` frame, white background, Helvetica 11 pt, and `colorway` defaults are baked into the template, so any call to `figstyle.figure(...)` returns a styled canvas without the caller having to invoke `apply()`.
-- **Strahler colormaps**: four 10-stop tables sampled from MATLAB's `colormap(name)` — `jet` (default), `cool` (literal match for the `colormap(cool)` line at [`../Eloy2017_NatComm_archive/plot_stat_single_tree.m:37`](../Eloy2017_NatComm_archive/plot_stat_single_tree.m)), `parula` (post-R2014b default), and `rainbow` (legacy MechaTree palette from `_palette.py`). Switch via `set_strahler_cmap("...")`. The benchmark cell in [notebooks/06_fractal_dimension.ipynb](notebooks/06_fractal_dimension.ipynb) renders the species-0 champion under all four side-by-side so the visual winner can be picked before flipping `DEFAULT_STRAHLER_CMAP`.
+- **Strahler colormaps**: four 10-stop tables sampled from MATLAB's `colormap(name)` — `jet` (default), `cool` (literal match for the `colormap(cool)` line at [`legacy/matlab/plot_stat_single_tree.m:37`](legacy/matlab/plot_stat_single_tree.m)), `parula` (post-R2014b default), and `rainbow` (legacy MechaTree palette from `_palette.py`). Switch via `set_strahler_cmap("...")`. The benchmark cell in [notebooks/06_fractal_dimension.ipynb](notebooks/06_fractal_dimension.ipynb) renders the species-0 champion under all four side-by-side so the visual winner can be picked before flipping `DEFAULT_STRAHLER_CMAP`.
 - **Wire-up**: every plotly call in the library now routes through `figstyle.figure*` ([_2d.py](src/mechatree/plotting/_2d.py), [_3d.py](src/mechatree/plotting/_3d.py), [_mechanics.py](src/mechatree/plotting/_mechanics.py), [_stats.py](src/mechatree/plotting/_stats.py)). [examples/grow_a_forest.py](examples/grow_a_forest.py)'s inline twin-axis figure was migrated as well. All 6 notebooks call `figstyle.apply()` in their first code cell; notebooks 02 / 03 / 04 / 06 also swap their direct `make_subplots` for `figstyle.subplots`. Hardcoded `"forestgreen"` / `"saddlebrown"` / `"red"` / `"blue"` / `"black"` / `"magenta"` / `"cyan"` literals from `_stats.py` and `grow_a_forest.py` were replaced with `figstyle.COLORS[...]` entries.
 - **Comparison script**: [examples/figstyle_compare.py](examples/figstyle_compare.py) — three side-by-side benchmarks (Strahler palettes ×4, font families ×4, ticks-inside vs ticks-outside × 4-sided frame vs no-top-right). `uv run python examples/figstyle_compare.py` opens three browser tabs; pick winners then edit `DEFAULT_STRAHLER_CMAP` / `FONT` / `_axis_style()` in `figstyle.py`.
 - **Tests**: [tests/test_figstyle.py](tests/test_figstyle.py) — 7 cases covering template registration, sized canvas dimensions, axis attributes (`mirror=True`, `ticks="inside"`, `showgrid=False`), `COLORS` hex validation, and the Strahler cmap switch.
@@ -283,7 +281,7 @@ Prep for the island-scale Nat Commun reproduction. The user's [Nat Commun 2017](
 
 ### Step 21 notes (closed 2026-05-25)
 
-Per-tree Darwinian dynamics on the [`Forest`](src/mechatree/forest.py) container. The user's intent for this port was *not* the Fortran's external NSGA-style tournament + MPI master-slave (`legacy_fortran/EvoluAlgo.f90`); it's the in-silico Darwinian island the Fortran was approximating: every tree carries a heritable genome, seeds inherit a mutated copy at birth, lineages disappear naturally when no descendant survives. The forest *is* the population — no central selection step.
+Per-tree Darwinian dynamics on the [`Forest`](src/mechatree/forest.py) container. The user's intent for this port was *not* the Fortran's external NSGA-style tournament + MPI master-slave (`legacy/fortran/EvoluAlgo.f90`); it's the in-silico Darwinian island the Fortran was approximating: every tree carries a heritable genome, seeds inherit a mutated copy at birth, lineages disappear naturally when no descendant survives. The forest *is* the population — no central selection step.
 
 - **New package** [src/mechatree/evolution/](src/mechatree/evolution/) — 5 modules:
   - [`genome.py`](src/mechatree/evolution/genome.py) — `Genome` (frozen dataclass): 10 safety NN weights + 18 allocation NN weights + 3 raw angle genes (decoded to `theta1/theta2/gamma1/gamma2` via the existing [`mechatree.genome._decode_angles`](src/mechatree/genome.py) formula at use time). `Genome.random(rng)`, `Genome.mutate(rng, sigma=0.005, p_locus=0.05)` (Fortran defaults), `Genome.to_models()` returns and caches a `NeuralSafety` / `NeuralAllocation` pair, `Genome.tree_angles()` for `replace(cfg.tree, **angles)`. Weight loci clip to `[0, 1]`; angle genes left unclamped (decoder scales them anyway).
