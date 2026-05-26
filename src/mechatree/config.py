@@ -182,17 +182,54 @@ class GenomeConfig:
 
 @dataclass(frozen=True)
 class WindConfig:
-    """Wind model selection + parameters (Step 17 / DendroFlow M6).
+    """Wind model selection + parameters.
 
-    ``model: default`` keeps the Fortran-faithful rotating wind
-    (:func:`mechatree.simulate.default_wind_fn`) — none of the other fields
-    are consumed.
+    Three models, all valid for the top-level ``wind:`` YAML block:
 
-    ``model: dendroflow`` selects DendroFlow's lean
-    ``BulkThinningBranchWindModel`` via the
-    :mod:`mechatree.wind.dendroflow` bridge. ``U_infty`` and ``z_centers``
-    are then required (same length, ``z_centers`` strictly monotone with
-    ``z_centers[0] - H/2 <= 0`` so the trunk base lies in-range).
+    - ``model: default`` keeps the Fortran-faithful storm wind
+      (:func:`mechatree.simulate.default_wind_fn`) — a single direction
+      per generation, no canopy feedback. The only model that worked
+      pre-Step-17. ``U_infty`` / ``z_centers`` / ``H`` / ``C_D`` are
+      ignored here.
+    - ``model: native`` (Step 25) selects the in-repo canopy-aware
+      bulk-thinning model (:mod:`mechatree.wind.bulk_thinning`). Default
+      free stream is **uniform** ``U_infty = 1`` on ``z ∈ [0, 50]`` with
+      ``H = 0.5`` (no boundary layer); set ``U_infty`` / ``z_centers``
+      explicitly to opt into a log/power-law profile. Honours the
+      ``angle_cdf`` and ``amplitude_cdf`` storm distributions so a
+      tilted storm actually rotates the canopy in the wind frame.
+    - ``model: dendroflow`` selects the optional DendroFlow bridge
+      (Step 17). Useful when you want DendroFlow's full k-ε machinery
+      eventually; for plain bulk-thinning prefer ``native``. Requires
+      the ``dendroflow`` optional extra. ``U_infty`` and ``z_centers``
+      are required (same length, ``z_centers`` strictly monotone with
+      ``z_centers[0] - H/2 <= 0``). Currently solves in the world ``+x``
+      frame only — does not yet honour ``angle_cdf``.
+
+    Step 24 knobs (canopy-aware wind only):
+
+    - ``max_pruning_iterations`` / ``wind_convergence_eps_rel`` control
+      the fixed-point loop that re-evaluates wind after each pruning
+      sweep. Exits on the first of zero new cuts, sub-``eps_rel``
+      canopy-mean change, or hitting the cap. ``cap=1`` recovers the
+      old single-pass behaviour; ``eps_rel=0`` disables the early-exit.
+
+    Step 25 knobs (storm statistics, all wind models):
+
+    - ``amplitude_cdf`` (SymPy CDF in ``a``) drives the per-generation
+      storm magnitude in the default wind, and scales ``U_infty`` per
+      generation in canopy-aware models. ``None`` keeps the legacy
+      Fortran formula (``a = 0.835 - log(U)/6`` for default; ``a = 1``
+      constant scaling for canopy-aware models).
+    - ``angle_cdf`` (SymPy CDF in ``theta``) drives the storm direction.
+      ``None`` keeps the legacy behaviour (``angle = generation rad``
+      for default; storm always ``+x`` for ``dendroflow``;
+      ``+x`` for ``native`` unless overridden).
+    - ``angle_samples`` is the count of storm-direction samples per
+      generation passed to wind models that support multi-angle storms
+      (currently informational only — the C++ sensing sweep in
+      ``calculate_stresses`` is still pinned to its hardcoded 4 angles;
+      generalising that is a Step 25 follow-up).
     """
 
     model: str = "default"
@@ -201,11 +238,43 @@ class WindConfig:
     H: float = 0.5
     C_D: float = 1.0
     z_representative: str = "mean"
+    max_pruning_iterations: int = 8
+    wind_convergence_eps_rel: float = 0.01
+    # Step 25: tunable storm distributions. SymPy CDFs in the documented
+    # variable name ('a' for amplitude, 'theta' for angle). ``None``
+    # selects the legacy hard-coded sampler so existing YAMLs without
+    # these fields keep their behaviour.
+    amplitude_cdf: str | None = None
+    angle_cdf: str | None = None
+    angle_samples: int = 4
 
     def __post_init__(self) -> None:
-        if self.model not in ("default", "dendroflow"):
+        if self.max_pruning_iterations < 1:
             raise ValueError(
-                f"WindConfig.model must be 'default' or 'dendroflow', got {self.model!r}"
+                f"WindConfig.max_pruning_iterations must be >= 1, got {self.max_pruning_iterations}"
+            )
+        if self.wind_convergence_eps_rel < 0.0:
+            raise ValueError(
+                "WindConfig.wind_convergence_eps_rel must be non-negative, "
+                f"got {self.wind_convergence_eps_rel}"
+            )
+        if self.angle_samples < 1:
+            raise ValueError(f"WindConfig.angle_samples must be >= 1, got {self.angle_samples}")
+        if self.amplitude_cdf is not None and not (
+            isinstance(self.amplitude_cdf, str) and self.amplitude_cdf.strip()
+        ):
+            raise ValueError(
+                "WindConfig.amplitude_cdf must be a non-empty SymPy expression in 'a', or None"
+            )
+        if self.angle_cdf is not None and not (
+            isinstance(self.angle_cdf, str) and self.angle_cdf.strip()
+        ):
+            raise ValueError(
+                "WindConfig.angle_cdf must be a non-empty SymPy expression in 'theta', or None"
+            )
+        if self.model not in ("default", "native", "dendroflow"):
+            raise ValueError(
+                f"WindConfig.model must be 'default', 'native', or 'dendroflow', got {self.model!r}"
             )
         if self.model == "dendroflow":
             if self.U_infty is None or self.z_centers is None:

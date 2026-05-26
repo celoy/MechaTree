@@ -53,10 +53,11 @@ from mechatree.plotting import (
     plot_allocation,
     plot_forest_topdown,
     plot_self_thinning,
+    plot_storm_replay,
     plot_strahler_diagnostics,
     plot_tree_3d,
 )
-from mechatree.simulate import TreeStats, grow_tree
+from mechatree.simulate import TreeStats, default_wind_fn, grow_tree, make_default_wind_fn
 from mechatree.stats import (
     HortonRatios,
     HortonSummary,
@@ -71,6 +72,18 @@ from mechatree.stats import (
     strahler_summary,
     tokunaga_matrix,
 )
+from mechatree.wind.bulk_thinning import (
+    BulkThinningParams,
+    BulkThinningResult,
+    BulkThinningWindBridge,
+    make_bulk_thinning_wind_fn,
+)
+from mechatree.wind.distributions import (
+    Distribution,
+    default_amplitude_sampler,
+    uniform_angle_sampler,
+)
+from mechatree.wind.replay import StormPreSnapshot, StormSnapshot, run_storm_replay
 
 __version__ = "0.0.0.dev0"
 
@@ -110,12 +123,16 @@ def __getattr__(name: str):
 __all__ = [
     "AllocationModel",
     "BranchWindBridge",
+    "BulkThinningParams",
+    "BulkThinningResult",
+    "BulkThinningWindBridge",
     "CallbackAllocation",
     "CallbackSafety",
     "Config",
     "ConstantAllocation",
     "ConstantSafety",
     "DendroFlowWindParams",
+    "Distribution",
     "Forest",
     "ForestConfig",
     "ForestEvolutionResult",
@@ -130,6 +147,8 @@ __all__ = [
     "NeuralSafety",
     "PyTree",
     "SafetyModel",
+    "StormPreSnapshot",
+    "StormSnapshot",
     "StrahlerSummary",
     "Sun",
     "TreeConfig",
@@ -137,6 +156,8 @@ __all__ = [
     "WindConfig",
     "__version__",
     "champion_angles",
+    "default_amplitude_sampler",
+    "default_wind_fn",
     "distance_to_leaves",
     "evolution",
     "figstyle",
@@ -148,6 +169,8 @@ __all__ = [
     "load_all_champions",
     "load_champion",
     "load_config",
+    "make_bulk_thinning_wind_fn",
+    "make_default_wind_fn",
     "make_dendroflow_wind_fn",
     "mean_distance_to_leaves",
     "mean_stream_length",
@@ -157,9 +180,12 @@ __all__ = [
     "plot_allocation",
     "plot_forest_topdown",
     "plot_self_thinning",
+    "plot_storm_replay",
     "plot_strahler_diagnostics",
     "plot_tree_3d",
+    "run_storm_replay",
     "run_tournament",
     "strahler_summary",
     "tokunaga_matrix",
+    "uniform_angle_sampler",
 ]

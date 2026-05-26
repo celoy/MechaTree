@@ -301,6 +301,51 @@ you'd rather skip the YAML:
 
 See ``examples/dendroflow_wind.py`` for a runnable recipe.
 
+Coupled wind ↔ pruning fixed-point loop (Step 24)
+-------------------------------------------------
+
+When the wind callback is canopy-aware (the 3-arg form, including the
+DendroFlow bridge above), every cut in a storm reshapes the canopy and
+therefore the wind on the survivors. The Step-11 single-pass schedule
+``wind → prune`` scored the surviving canopy against the *pre-pruning*
+wind, which is unrealistic for big storms. Step 24 turns that into a
+fixed-point iteration: after each prune sweep, the wind is recomputed
+from the surviving canopy and another sweep is run, until one of:
+
+* ``n_cut == 0`` (the true fixed point — the canonical exit);
+* the relative change in the pooled canopy-mean wind drops below
+  ``wind_convergence_eps_rel`` (cheap early-exit when only a handful of
+  branches were cut and the canopy barely moved); or
+* the iteration count hits ``max_pruning_iterations`` (safety cap; the
+  orchestrator emits one ``RuntimeWarning`` per run when this fires).
+
+Both knobs live on the ``WindConfig`` (and the YAML ``wind:`` block):
+
+.. code-block:: yaml
+
+   wind:
+     model: dendroflow
+     # ... U_infty, z_centers, H, C_D as above ...
+     max_pruning_iterations: 8        # cap on inner iterations
+     wind_convergence_eps_rel: 0.01   # 1 % delta on canopy-mean to exit
+
+Set ``max_pruning_iterations: 1`` to recover the pre-Step-24 single-pass
+behaviour for A/B comparisons; set ``wind_convergence_eps_rel: 0.0`` to
+disable the ε early-exit and iterate until ``n_cut == 0`` or the cap.
+``TreeStats.n_wind_iterations`` and ``ForestStats.n_wind_iterations``
+report how many passes ran each generation — ``1`` on calm gens, ``2``–``4``
+on storms once ε is on. The 2-arg default wind (the Fortran-faithful
+rotating wind in :func:`mechatree.simulate.default_wind_fn`) is *not*
+canopy-aware, so its codepath is byte-identical to before Step 24
+regardless of these knobs.
+
+A note on the direction of the fix: for the bulk-thinning model in
+DendroFlow, thinning the canopy raises the mean wind on the survivors,
+so the fixed-point loop iterates toward *more* cuts than the single-pass
+would produce. That's the physically self-consistent settled state — the
+single-pass under-prunes because it scores the survivors against the
+weaker wind the pre-pruning canopy produced.
+
 
 Examples
 ========

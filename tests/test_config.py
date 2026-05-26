@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mechatree.config import Config, GenomeConfig, LightConfig, TreeConfig, load_config
+from mechatree.config import Config, GenomeConfig, LightConfig, TreeConfig, WindConfig, load_config
 
 
 def test_treeconfig_defaults():
@@ -190,3 +190,40 @@ def test_config_from_yaml_stashes_base_dir(tmp_path):
     yml.write_text("genome:\n  safety: 2.5\n")
     cfg = Config.from_yaml(yml)
     assert cfg.base_dir == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# Step 24: WindConfig fields for the wind ↔ pruning fixed-point loop.
+# ---------------------------------------------------------------------------
+
+
+def test_windconfig_step24_defaults():
+    wc = WindConfig()
+    assert wc.max_pruning_iterations == 8
+    assert wc.wind_convergence_eps_rel == pytest.approx(0.01)
+
+
+def test_windconfig_max_pruning_iterations_validation():
+    # 1 is the minimum (recovers the old single-pass behaviour).
+    WindConfig(max_pruning_iterations=1)
+    with pytest.raises(ValueError, match="max_pruning_iterations"):
+        WindConfig(max_pruning_iterations=0)
+    with pytest.raises(ValueError, match="max_pruning_iterations"):
+        WindConfig(max_pruning_iterations=-1)
+
+
+def test_windconfig_eps_rel_validation():
+    # 0 is allowed (disables the early-exit).
+    WindConfig(wind_convergence_eps_rel=0.0)
+    with pytest.raises(ValueError, match="wind_convergence_eps_rel"):
+        WindConfig(wind_convergence_eps_rel=-0.01)
+
+
+def test_windconfig_step24_yaml_roundtrip(tmp_path):
+    yml = tmp_path / "cfg.yaml"
+    yml.write_text(
+        "wind:\n  model: default\n  max_pruning_iterations: 3\n  wind_convergence_eps_rel: 0.05\n"
+    )
+    cfg = Config.from_yaml(yml)
+    assert cfg.wind.max_pruning_iterations == 3
+    assert cfg.wind.wind_convergence_eps_rel == pytest.approx(0.05)

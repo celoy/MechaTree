@@ -116,16 +116,7 @@ def pytree_to_cylinders(tree: PyTree, *, tree_id: float = 1.0) -> Cylinders:
     ``axis`` is the unit-t direction (DendroFlow normalises internally).
     DendroFlow requires ``tree_id`` to be a float in its schema.
     """
-    n = tree.get_number_of_branches()
-    start = np.empty((n, 3), dtype=float)
-    axis = np.empty((n, 3), dtype=float)
-    D = np.empty(n, dtype=float)
-    L = np.empty(n, dtype=float)
-    for i in range(n):
-        start[i] = tree.get_location(i)
-        axis[i] = tree.get_unit_t(i)
-        D[i] = tree.get_diameter(i)
-        L[i] = tree.get_length(i)
+    start, axis, D, L = tree.get_branch_data_batch()
     return _df_from_arrays(start=start, axis=axis, D=D, L=L, tree_id=float(tree_id))
 
 
@@ -136,27 +127,34 @@ def forest_to_cylinders(trees: Sequence[PyTree]) -> Cylinders:
     ``trees`` is empty, the caller should short-circuit upstream — building
     a zero-row ``Cylinders`` is not useful here and DendroFlow would
     happily produce one but ``compute`` would then divide by zero.
+
+    Pulls per-tree ``(start, axis, D, L)`` arrays in one batched Cython
+    call each via :meth:`PyTree.get_branch_data_batch`, then concatenates
+    in NumPy. Avoids the per-branch Python ``[get_location, get_unit_t,
+    get_diameter, get_length]`` round-trip — the Step-24 prep speedup that
+    makes the fixed-point loop's inner-iter cost affordable at scale.
     """
     if len(trees) == 0:
         raise ValueError("forest_to_cylinders requires at least one tree")
 
-    sizes = [t.get_number_of_branches() for t in trees]
-    total = sum(sizes)
-    start = np.empty((total, 3), dtype=float)
-    axis = np.empty((total, 3), dtype=float)
-    D = np.empty(total, dtype=float)
-    L = np.empty(total, dtype=float)
-    tree_id = np.empty(total, dtype=float)
+    starts: list[np.ndarray] = []
+    axes: list[np.ndarray] = []
+    Ds: list[np.ndarray] = []
+    Ls: list[np.ndarray] = []
+    sizes: list[int] = []
+    for tree in trees:
+        s, a, d, L = tree.get_branch_data_batch()
+        starts.append(s)
+        axes.append(a)
+        Ds.append(d)
+        Ls.append(L)
+        sizes.append(s.shape[0])
 
-    offset = 0
-    for ti, (tree, n) in enumerate(zip(trees, sizes, strict=True)):
-        for i in range(n):
-            start[offset + i] = tree.get_location(i)
-            axis[offset + i] = tree.get_unit_t(i)
-            D[offset + i] = tree.get_diameter(i)
-            L[offset + i] = tree.get_length(i)
-        tree_id[offset : offset + n] = float(ti)
-        offset += n
+    start = np.concatenate(starts) if starts else np.empty((0, 3), dtype=float)
+    axis = np.concatenate(axes) if axes else np.empty((0, 3), dtype=float)
+    D = np.concatenate(Ds) if Ds else np.empty(0, dtype=float)
+    L = np.concatenate(Ls) if Ls else np.empty(0, dtype=float)
+    tree_id = np.repeat(np.arange(len(trees), dtype=float), sizes)
 
     return _df_from_arrays(start=start, axis=axis, D=D, L=L, tree_id=tree_id)
 

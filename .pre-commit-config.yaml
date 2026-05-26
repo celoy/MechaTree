@@ -1,3 +1,8 @@
+# Per CLAUDE.md, ``archive/`` and ``legacy_fortran/`` are intellectual
+# history and must never be edited — even by formatters. Exclude them
+# wholesale from the formatting hooks below.
+exclude: ^(archive|legacy_fortran)/
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

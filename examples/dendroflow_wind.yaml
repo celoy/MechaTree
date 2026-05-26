@@ -32,5 +32,15 @@ wind:
   H: 0.5
   C_D: 1.0
   z_representative: mean  # how to reduce each branch's cylinders to one z
+  # Step 24: cap on the wind ↔ pruning fixed-point loop. The loop fires
+  # only with a canopy-aware wind (model: dendroflow above) and exits on
+  # whichever comes first: zero new cuts, a small change in the pooled
+  # canopy-mean wind (the ε early-exit), or this cap. Set to 1 to recover
+  # the pre-Step-24 single-pass behaviour for A/B comparisons.
+  max_pruning_iterations: 8
+  # Relative tolerance on the canopy-mean wind delta for the early-exit.
+  # 0.01 means "stop iterating if the new wind is within 1 % of the
+  # previous one"; set to 0.0 to disable the early-exit.
+  wind_convergence_eps_rel: 0.01
 
 n_generations: 20

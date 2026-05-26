@@ -14,6 +14,7 @@ mutated copy at birth. See :func:`mechatree.evolution.run_tournament`.
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
@@ -60,6 +61,11 @@ class ForestStats:
     # 0 when evolution is not active (``Forest.genomes is None``). The natural
     # diagnostic for "a species disappears when no descendant carries it".
     n_lineages_alive: int = 0
+    # Step 24: passes through the wind → prune fixed-point loop. Always 1
+    # for the default 2-arg wind (the canopy doesn't feed back) and for
+    # canopy-aware winds on calm generations. Climbs into 2-4 on storm
+    # generations when the surviving canopy materially reshapes the wind.
+    n_wind_iterations: int = 1
 
 
 def _make_forest_tree(
@@ -114,6 +120,12 @@ class Forest:
     ages: list[int] = field(init=False, default_factory=list, repr=False)
     _next_tree_seed: int = field(init=False, default=0, repr=False)
     _wind_arity: int = field(init=False, default=2, repr=False)
+    # Step 24: tripped on the first generation that hits the cap on the
+    # wind → prune fixed-point loop, so the warning only fires once per
+    # run (rather than spamming every storm gen). Reset to False at the
+    # top of :meth:`run`; direct callers of :meth:`step` can reset it
+    # themselves if they want a fresh warning window.
+    _cap_hit_warned: bool = field(init=False, default=False, repr=False)
 
     def __post_init__(self) -> None:
         self.rng = np.random.default_rng(self.seed)
@@ -209,17 +221,65 @@ class Forest:
             requested_growth(tree, safety_model, maintenance_h=tree_cfg.maintenance_h)
             secondary_growth(tree, volume_per_leaf=volume_per_leaf)
 
-        # 3. Pruning under a common wind.
-        if self._wind_arity >= 3:
-            wind = self.wind_fn(generation, self.rng, self)
-        else:
-            wind = self.wind_fn(generation, self.rng)
+        # 3. Pruning under a common, canopy-aware wind. Step 24: when the
+        # wind callable is 3-arg (e.g. the DendroFlow bridge), iterate
+        # ``wind_fn → prune-all-trees`` to a fixed point so the surviving
+        # canopy is scored against the wind it would actually feel after
+        # the cuts. The loop is forest-wide rather than per-tree because
+        # tree A's pruning changes the pooled canopy that drives tree B's
+        # wind. For the default 2-arg wind the body runs once and the
+        # behaviour is byte-identical to before Step 24.
+        canopy_aware = self._wind_arity >= 3
+        max_iter = self.config.wind.max_pruning_iterations
+        eps_rel = self.config.wind.wind_convergence_eps_rel
         n_pruned_total = 0
-        for tree in self.trees:
-            n_pruned_total += prune(
-                tree, wind=wind, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy
-            )
-            tree.reorder()
+        n_wind_iterations = 0
+        prev_wind: tuple[float, float, float] | None = None
+        wind: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        while True:
+            n_wind_iterations += 1
+            if canopy_aware:
+                wind = self.wind_fn(generation, self.rng, self)
+            else:
+                wind = self.wind_fn(generation, self.rng)
+
+            # ε-tolerance early exit. Only checked from iteration 2
+            # onwards; the first iteration must always do the prune
+            # sweep so we know whether anything was cut.
+            if canopy_aware and prev_wind is not None and eps_rel > 0.0:
+                delta = math.hypot(wind[0] - prev_wind[0], wind[1] - prev_wind[1])
+                ref = max(math.hypot(prev_wind[0], prev_wind[1]), 1e-6)
+                if delta / ref < eps_rel:
+                    break
+
+            n_cut_this_iter = 0
+            for tree in self.trees:
+                n_cut_this_iter += prune(
+                    tree,
+                    wind=wind,
+                    leaf_drag_S0=tree_cfg.leaf_surface,
+                    cauchy=tree_cfg.cauchy,
+                )
+                tree.reorder()
+            n_pruned_total += n_cut_this_iter
+
+            prev_wind = wind
+            if not canopy_aware or n_cut_this_iter == 0:
+                break
+            if n_wind_iterations >= max_iter:
+                # cap=1 is the explicit single-pass knob (recovers the
+                # pre-Step-24 behaviour for A/B comparisons), not a cap
+                # violation — never warn for it.
+                if not self._cap_hit_warned and max_iter > 1:
+                    warnings.warn(
+                        f"Wind/pruning fixed-point loop hit cap "
+                        f"({max_iter}) at generation {generation}; "
+                        "consider raising WindConfig.max_pruning_iterations.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    self._cap_hit_warned = True
+                break
             # Optional: fuse single-child parent->child chains left by pruning
             # into one straight segment (bottom/top + total volume kept).
             # ``collapse_chains_after_prune`` only walks the chains seeded by
@@ -228,11 +288,10 @@ class Forest:
             # tree's size. Worth trying on long forest runs to keep per-step
             # cost down.
             #
-            #   n_pruned = prune(...)
-            #   tree.reorder()
-            #   if n_pruned > 0:
-            #       tree.collapse_chains_after_prune()  # length_max=10.0 by default
-            #       tree.reorder()
+            #   if n_cut_this_iter > 0:
+            #       for tree in self.trees:
+            #           tree.collapse_chains_after_prune()  # length_max=10.0 by default
+            #           tree.reorder()
 
         # 4. Age + death.
         n_died = 0
@@ -276,10 +335,14 @@ class Forest:
             n_died=n_died,
             n_pruned_total=n_pruned_total,
             n_lineages_alive=n_lineages_alive,
+            n_wind_iterations=n_wind_iterations,
         )
 
     def run(self, n_generations: int, on_step: OnStep | None = None) -> None:
         """Drive the simulation for ``n_generations`` steps."""
+        # Reset the Step-24 cap-hit warning gate so each ``run`` call
+        # gets at most one warning even if the user reuses the Forest.
+        self._cap_hit_warned = False
         for gen in range(n_generations):
             stats = self.step(gen)
             if on_step is not None:

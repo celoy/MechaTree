@@ -7,6 +7,7 @@ from mechatree.plotting._stats import (
     plot_self_thinning,
     plot_strahler_diagnostics,
 )
+from mechatree.plotting._storm import plot_storm_replay
 
 __all__ = [
     "figstyle",
@@ -15,6 +16,7 @@ __all__ = [
     "plot_allocation",
     "plot_forest_topdown",
     "plot_self_thinning",
+    "plot_storm_replay",
     "plot_strahler_diagnostics",
     "plot_tree_3d",
 ]

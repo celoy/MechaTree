@@ -91,3 +91,53 @@ def test_set_lights_batch_length_mismatch_raises():
     tree = PyTree({})
     with pytest.raises(ValueError):
         tree.set_lights_batch(np.array([0], dtype=np.int32), np.array([0.0, 1.0]))
+
+
+def test_get_branch_data_batch_matches_per_branch_path():
+    """Step 24 prep: batched (start, axis, D, L) accessor must match the
+    per-branch ``[get_location, get_unit_t, get_diameter, get_length]``
+    pattern that ``forest_to_cylinders`` used to walk."""
+    import numpy as np
+
+    from mechatree.config import Config
+    from mechatree.simulate import grow_tree
+
+    tree = grow_tree(Config(), n_generations=15, seed=0)
+    start, axis, D, L = tree.get_branch_data_batch()
+    n = tree.get_number_of_branches()
+
+    assert start.shape == (n, 3)
+    assert axis.shape == (n, 3)
+    assert D.shape == (n,)
+    assert L.shape == (n,)
+    assert start.dtype == np.float64
+    assert axis.dtype == np.float64
+    assert D.dtype == np.float64
+    assert L.dtype == np.float64
+
+    for i in range(n):
+        np.testing.assert_allclose(start[i], tree.get_location(i), atol=1e-12)
+        np.testing.assert_allclose(axis[i], tree.get_unit_t(i), atol=1e-12)
+        assert D[i] == pytest.approx(tree.get_diameter(i))
+        assert L[i] == pytest.approx(tree.get_length(i))
+
+
+def test_get_branch_data_batch_seed_tree():
+    """Single-trunk tree: the batched accessor returns one row per array."""
+    tree = PyTree({})
+    tree.set_length(0, 1.0)
+    tree.set_diameter(0, 0.1)
+    tree.set_unit_t(0, (0.0, 0.0, 1.0))
+    tree.set_unit_b(0, (1.0, 0.0, 0.0))
+    tree.set_location(0, (0.5, -0.3, 2.0))
+    tree.reorder()
+
+    start, axis, D, L = tree.get_branch_data_batch()
+    assert start.shape == (1, 3)
+    assert axis.shape == (1, 3)
+    assert D.shape == (1,)
+    assert L.shape == (1,)
+    assert tuple(start[0]) == pytest.approx((0.5, -0.3, 2.0))
+    assert tuple(axis[0]) == pytest.approx((0.0, 0.0, 1.0))
+    assert D[0] == pytest.approx(0.1)
+    assert L[0] == pytest.approx(1.0)

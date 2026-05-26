@@ -29,15 +29,24 @@ def main() -> None:
 
     print(f"DendroFlow wind: U_infty in [{min(cfg.wind.U_infty):.1f}, {free_stream_max:.1f}]")
     print(f"  {len(cfg.wind.U_infty)} z-layers, H={cfg.wind.H}, C_D={cfg.wind.C_D}")
+    print(
+        f"  fixed-point cap: {cfg.wind.max_pruning_iterations}, "
+        f"ε early-exit: {cfg.wind.wind_convergence_eps_rel}"
+    )
     print()
-    print(f"{'gen':>4} {'n_br':>6} {'n_lvs':>6} {'wind':>8}")
+    # Step 24: ``iters`` shows how many wind ↔ prune passes the
+    # fixed-point loop ran this generation. 1 in calm gens (nothing
+    # cut); >1 in storms where the post-prune canopy reshapes the wind.
+    print(f"{'gen':>4} {'n_br':>6} {'n_lvs':>6} {'wind':>8} {'iters':>5} {'pruned':>6}")
 
     def on_step(gen: int, tree, stats: mt.TreeStats) -> None:
         print(
             f"{stats.generation:>4d} "
             f"{stats.n_branches:>6d} "
             f"{stats.n_leaves:>6d} "
-            f"{stats.wind_amplitude:>8.3f}"
+            f"{stats.wind_amplitude:>8.3f} "
+            f"{stats.n_wind_iterations:>5d} "
+            f"{stats.n_pruned:>6d}"
         )
         # Sanity floor: bulk-thinning never produces canopy wind > free stream.
         assert stats.wind_amplitude <= free_stream_max + 1e-9, (
