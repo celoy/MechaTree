@@ -257,55 +257,50 @@ runnable recipe.
 
 .. _canopy-aware-wind:
 
-Canopy-aware wind via DendroFlow
-================================
+Canopy-aware wind via the momentum model
+=========================================
 
-For a wind model that accounts for the canopy thinning the inflow
-profile, MechaTree ships a bridge to `DendroFlow
-<https://github.com/celoy/DendroFlow>`_'s lean
-``BulkThinningBranchWindModel``. The bridge is gated behind an optional
-extra::
-
-   uv pip install -e '.[dendroflow]'
-   # DendroFlow isn't on PyPI yet — install from a sibling checkout:
-   uv pip install -e ../DendroFlow
-
-YAML drives the wiring — add a ``wind:`` block:
+For a wind model that accounts for the canopy screening the inflow as it
+advances downstream, MechaTree ships the native 3-D **momentum-wind** CFD
+solver (:class:`~mechatree.wind.momentum_wind.MomentumWindBridge`). It is
+pure NumPy — no optional extras or external dependencies. YAML drives the
+wiring — add a ``wind:`` block:
 
 .. code-block:: yaml
 
    wind:
-     model: dendroflow
-     U_infty:   [3.0, 4.0, 5.0, 5.8, 6.4, 6.9, 7.3, 7.6, 7.8, 8.0]
-     z_centers: [0.25, 0.75, 1.25, 1.75, 2.25, 2.75, 3.25, 3.75, 4.25, 4.75]
-     H: 0.5
-     C_D: 1.0
+     model: momentum
+     grid_size: 2.0           # 3-D cell edge (default 2)
+     momentum_U_uniform: 1.6  # uniform inlet speed; omit for a log-law profile
 
-Per generation, the bridge snapshots the live tree (or every tree in a
-``Forest``) into a DendroFlow ``Cylinders``, runs the 1-D bulk-thinning
-solver, and returns the canopy-mean streamwise wind as
-``(Ū, 0, 0)``. For ``Forest``, every tree's branches go into a single
-``Cylinders`` call so the wake/shadow is captured. Python factory if
-you'd rather skip the YAML:
+Per generation, the bridge pools the live tree (or every tree in a
+``Forest``) into ``(start, axis, D, L)`` arrays, builds a structured grid
+from the canopy bounding box, and runs a momentum-conservation column march
+(per-cell drag + an actuator-disk-style velocity update + cross-stream
+diffusion). It writes each branch's *local* screened wind and force back
+onto the tree, so pruning scores every branch against the wind it actually
+feels — a sheltered understorey twig sees far less than an exposed crown tip
+— rather than a single canopy-mean. Python factory if you'd rather skip the
+YAML:
 
 .. code-block:: python
 
-   from mechatree.wind import make_dendroflow_wind_fn
+   from mechatree.wind.momentum_wind import make_momentum_wind_fn
 
-   wind_fn = make_dendroflow_wind_fn(
-       U_infty=[3, 4, 5, 6, 7, 8],
-       z_centers=[0.25, 0.75, 1.25, 1.75, 2.25, 2.75],
-       H=0.5,
-   )
+   wind_fn = make_momentum_wind_fn(grid_size=2.0, U_uniform=1.6)
    tree = grow_tree(cfg, n_generations=100, seed=42, wind_fn=wind_fn)
 
-See ``examples/dendroflow_wind.py`` for a runnable recipe.
+See ``examples/momentum_wind.yaml`` for a YAML template.
+
+(The legacy ``native`` bulk-thinning and ``dendroflow`` bridges were removed
+in Step 26 — both collapsed the field to a single scalar, equivalent to a
+constant wind, which the per-branch momentum model supersedes.)
 
 Coupled wind ↔ pruning fixed-point loop (Step 24)
 -------------------------------------------------
 
-When the wind callback is canopy-aware (the 3-arg form, including the
-DendroFlow bridge above), every cut in a storm reshapes the canopy and
+When the wind callback is canopy-aware (the 3-arg form, i.e. the momentum
+bridge above), every cut in a storm reshapes the canopy and
 therefore the wind on the survivors. The Step-11 single-pass schedule
 ``wind → prune`` scored the surviving canopy against the *pre-pruning*
 wind, which is unrealistic for big storms. Step 24 turns that into a
@@ -324,8 +319,8 @@ Both knobs live on the ``WindConfig`` (and the YAML ``wind:`` block):
 .. code-block:: yaml
 
    wind:
-     model: dendroflow
-     # ... U_infty, z_centers, H, C_D as above ...
+     model: momentum
+     # ... grid_size, momentum_U_uniform as above ...
      max_pruning_iterations: 8        # cap on inner iterations
      wind_convergence_eps_rel: 0.01   # 1 % delta on canopy-mean to exit
 
@@ -339,12 +334,11 @@ rotating wind in :func:`mechatree.simulate.default_wind_fn`) is *not*
 canopy-aware, so its codepath is byte-identical to before Step 24
 regardless of these knobs.
 
-A note on the direction of the fix: for the bulk-thinning model in
-DendroFlow, thinning the canopy raises the mean wind on the survivors,
-so the fixed-point loop iterates toward *more* cuts than the single-pass
-would produce. That's the physically self-consistent settled state — the
-single-pass under-prunes because it scores the survivors against the
-weaker wind the pre-pruning canopy produced.
+A note on the direction of the fix: thinning the canopy raises the wind on
+the survivors, so the fixed-point loop iterates toward *more* cuts than the
+single-pass would produce. That's the physically self-consistent settled
+state — the single-pass under-prunes because it scores the survivors
+against the weaker wind the pre-pruning canopy produced.
 
 
 Examples
@@ -362,9 +356,8 @@ Simulation tutorials (Step 11+):
   different wind / sun / genome settings.
 - ``examples/plot_strahler.py`` — Strahler-order diagnostics
   (self-similarity, Leonardo's rule, Tokunaga matrix).
-- ``examples/dendroflow_wind.py`` + ``dendroflow_wind.yaml`` —
-  canopy-aware wind via the DendroFlow bridge (Step 17). Requires the
-  ``dendroflow`` optional extra.
+- ``examples/momentum_wind.yaml`` — canopy-aware wind via the native 3-D
+  momentum model (the only screening wind path).
 - ``examples/sympy_genome.py`` + ``sympy_genome.yaml`` — closed-form
   safety + allocation via SymPy expressions (Step 15). Requires the
   ``sympy`` optional extra.

@@ -46,6 +46,14 @@ private:
     std::array<double, 3> unit_b_{{1.0, 0.0, 0.0}};
     std::array<double, 3> force_{{0.0, 0.0, 0.0}};
     std::array<double, 3> moment_{{0.0, 0.0, 0.0}};
+    // Step 25c: per-branch wind state pre-stored by the momentum-wind
+    // bridge (option B). `segment_force_` is the branch's own woody drag
+    // F_seg from the CFD; `segment_wind_` is the local wind it felt
+    // (magnitude from the CFD, along the storm direction). Both are kept
+    // separate from `force_`/`moment_` because those slots are reused as
+    // the leaves-to-trunk aggregation accumulator during prune.
+    std::array<double, 3> segment_force_{{0.0, 0.0, 0.0}};
+    std::array<double, 3> segment_wind_{{0.0, 0.0, 0.0}};
 
 public:
     Branch();
@@ -142,6 +150,15 @@ public:
     const std::array<double, 3>& getMoment() const { return moment_; }
     double momentAt(std::size_t i) const { return moment_[i]; }
     void   setMoment(double x, double y, double z) { moment_ = {{x, y, z}}; }
+
+    // Step 25c: pre-stored per-branch wind state (see fields above).
+    const std::array<double, 3>& getSegmentForce() const { return segment_force_; }
+    double segmentForceAt(std::size_t i) const { return segment_force_[i]; }
+    void   setSegmentForce(double x, double y, double z) { segment_force_ = {{x, y, z}}; }
+
+    const std::array<double, 3>& getSegmentWind() const { return segment_wind_; }
+    double segmentWindAt(std::size_t i) const { return segment_wind_[i]; }
+    void   setSegmentWind(double x, double y, double z) { segment_wind_ = {{x, y, z}}; }
 };
 
 #endif

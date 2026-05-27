@@ -8,7 +8,7 @@ tree:
   twig_length: 1.0           # was TwigLength
   twig_diameter: 0.1         # was TwigDiameter
   leaf_surface: 0.25         # was LeafSurface (S0)
-  cauchy: 2.0e-5             # was Cauchy (material stiffness Cy) — Forest.ini runtime value
+  cauchy: 4.0e-5             # 2x Forest.ini 2.0e-5: absorbs the restored 1/2 rho U^2 drag factor
   volume_ratio_leaf: 4.0     # was VolumeRatioLeaf; Nat Commun reference (SI Fig. S12 V_prod = 4 V0 l)
   maintenance_h: 0.02        # was MaintenanceH
   max_branches: 10000        # was Nmax
@@ -19,10 +19,10 @@ tree:
   # ``mechatree.genome.champion_angles(path, species_id)`` to recover the
   # champion's actual angle genes and override these four fields with
   # ``replace(cfg.tree, **champion_angles(...))``.
-  theta1: 0.7853981633974483   #  pi / 4 — left daughter
-  theta2: -0.7853981633974483  # -pi / 4 — right daughter
-  gamma1: 0.0
-  gamma2: 3.141592653589793    #  pi
+  theta1: 0.8
+  theta2: -0.5
+  gamma1: 1.0
+  gamma2: 1.0
 
 light:
   size_leaf: 1.0             # was SizeLeaf — 2D shadow-grid cell size

@@ -12,7 +12,7 @@ Typical use::
     forest = Forest(cfg, seed=0)
     for g in range(100):
         forest.step(g)  # grow under whatever wind
-    storm_wind = make_bulk_thinning_wind_fn(...)
+    storm_wind = make_momentum_wind_fn(grid_size=2.0, U_uniform=1.6)
     pre, snapshots = run_storm_replay(
         forest, storm_wind, generation=100, leaf_drag_S0=..., cauchy=...
     )

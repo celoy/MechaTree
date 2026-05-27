@@ -37,4 +37,16 @@ void wind_force(const Branch& b,
 // children lists are walked in the right order.
 void calculate_stresses(Tree& tree, double leaf_drag_S0, double cauchy);
 
+// Step 26c: one sensing angle's stress pass from the per-branch forces the
+// momentum-wind bridge pre-stored on each branch (`segment_force_` woody
+// drag + `segment_wind_` local wind for the leaf-cluster term), instead of
+// recomputing `wind_force` from a single uniform wind. The caller runs one
+// momentum solve + one call per sensing angle; pass `reset_max=true` on the
+// first angle (seed `max_stress`) and `false` afterwards (accumulate the
+// per-branch max over angles). Lets sensing see the same canopy screening
+// that pruning does, so a sheltered branch reinforces against the weaker
+// wind it actually feels.
+void calculate_stresses_from_stored_forces(Tree& tree, double leaf_drag_S0,
+                                           double cauchy, bool reset_max);
+
 #endif

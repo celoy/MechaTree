@@ -1,54 +1,22 @@
-"""Wind models for MechaTree (Step 17).
+"""Wind models for MechaTree.
 
-The only entry point today is the DendroFlow bridge — a thin wrapper around
-DendroFlow's ``BulkThinningBranchWindModel`` that turns a live ``PyTree`` /
-``Forest`` into a streamwise canopy-mean wind vector suitable for MechaTree's
-per-generation ``wind_fn`` callback.
+The canonical canopy-aware (screening) wind model is the native 3-D
+**momentum-wind** CFD bridge in :mod:`mechatree.wind.momentum_wind`
+(:class:`MomentumWindBridge` / :func:`make_momentum_wind_fn`), backed by the
+pure-NumPy kernel in :mod:`mechatree.wind._momentum_wind_kernel`. Select it
+via the YAML ``wind:`` block::
 
-The bridge module is import-gated on the optional ``dendroflow`` extra so
-``import mechatree`` keeps working without DendroFlow installed. To use it::
+    wind:
+      model: momentum
+      grid_size: 2.0
+      momentum_U_uniform: 1.6
 
-    pip install 'mechatree[dendroflow]'
-    # Then in YAML:
-    #   wind:
-    #     model: dendroflow
-    #     U_infty: [...]
-    #     z_centers: [...]
-    #     H: 0.5
-    #     C_D: 1.0
+Storm statistics (:mod:`mechatree.wind.distributions`) and the storm-replay
+diagnostic (:mod:`mechatree.wind.replay`) are model-agnostic helpers.
 
-or, programmatically::
-
-    from mechatree.wind import make_dendroflow_wind_fn
-
-    wind_fn = make_dendroflow_wind_fn(U_infty=[...], z_centers=[...], H=0.5)
-    grow_tree(cfg, n_generations=50, wind_fn=wind_fn)
+Step 26 removed the legacy ``native`` bulk-thinning and ``dendroflow``
+bridges: both collapsed the 3-D field to a single scalar (equivalent to a
+constant wind), which the per-branch momentum model supersedes.
 """
 
 from __future__ import annotations
-
-
-def __getattr__(name: str):
-    # Lazy re-export: pulling in ``dendroflow`` should only happen when the
-    # bridge symbols are actually requested. Lets ``import mechatree.wind``
-    # remain side-effect-free for users who don't have the extra installed.
-    if name in {
-        "BranchWindBridge",
-        "DendroFlowWindParams",
-        "make_dendroflow_wind_fn",
-        "pytree_to_cylinders",
-        "forest_to_cylinders",
-    }:
-        from mechatree.wind import dendroflow as _df
-
-        return getattr(_df, name)
-    raise AttributeError(f"module 'mechatree.wind' has no attribute {name!r}")
-
-
-__all__ = [
-    "BranchWindBridge",
-    "DendroFlowWindParams",
-    "forest_to_cylinders",
-    "make_dendroflow_wind_fn",
-    "pytree_to_cylinders",
-]

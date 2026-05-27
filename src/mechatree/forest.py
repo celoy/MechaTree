@@ -26,9 +26,8 @@ from mechatree.config import Config, ForestConfig, TreeConfig
 from mechatree.genome import AllocationModel, SafetyModel, models_from_config
 from mechatree.growth import primary_growth, requested_growth, secondary_growth
 from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
-from mechatree.mechanics import calculate_stresses
-from mechatree.pruning import prune
-from mechatree.simulate import _callback_arity, _resolve_wind_fn
+from mechatree.pruning import prune, prune_with_stored_forces
+from mechatree.simulate import _callback_arity, _resolve_wind_fn, _sense_canopy
 
 if TYPE_CHECKING:
     from mechatree.evolution.genome import Genome
@@ -120,6 +119,10 @@ class Forest:
     ages: list[int] = field(init=False, default_factory=list, repr=False)
     _next_tree_seed: int = field(init=False, default=0, repr=False)
     _wind_arity: int = field(init=False, default=2, repr=False)
+    # Step 25c (option B): set when the wind fn (the momentum-wind bridge)
+    # writes per-branch forces during its call, so the prune sweep reads them
+    # via ``prune_with_stored_forces`` instead of the canopy-mean broadcast.
+    _wind_uses_stored_forces: bool = field(init=False, default=False, repr=False)
     # Step 24: tripped on the first generation that hits the cap on the
     # wind → prune fixed-point loop, so the warning only fires once per
     # run (rather than spamming every storm gen). Reset to False at the
@@ -145,6 +148,7 @@ class Forest:
         if self.wind_fn is None:
             self.wind_fn = _resolve_wind_fn(self.config)
         self._wind_arity = _callback_arity(self.wind_fn)
+        self._wind_uses_stored_forces = getattr(self.wind_fn, "writes_segment_forces", False)
         if self.sun is None:
             lc = self.config.light
             self.sun = Sun(
@@ -211,9 +215,24 @@ class Forest:
             intercept(leaves, self.sun, leaf_transparency=self.config.light.leaf_transparency)
             aggregate_onto_trees(leaves, self.trees)
 
-        # 2. Per-tree mechanics + growth.
+        # 2a. Sensing → per-branch max_stress. Step 26c: for the momentum
+        # model this is a forest-level screened sweep over n_sensing_angles
+        # directions (mutual sheltering, so it must pool all trees, not run
+        # per-tree); for every other model it is the legacy per-tree uniform
+        # 4-angle stress sweep. Must run before growth, which reads max_stress.
+        _sense_canopy(
+            self,
+            self.trees,
+            self.wind_fn,
+            self._wind_uses_stored_forces,
+            self.config.wind.n_sensing_angles,
+            self.rng,
+            leaf_drag_S0=tree_cfg.leaf_surface,
+            cauchy=tree_cfg.cauchy,
+        )
+
+        # 2b. Per-tree growth (reads max_stress + nb_leaves).
         for i, tree in enumerate(self.trees):
-            calculate_stresses(tree, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy)
             if self.genomes is not None:
                 safety_model = self.genomes[i].to_models()[0]
             else:
@@ -222,7 +241,7 @@ class Forest:
             secondary_growth(tree, volume_per_leaf=volume_per_leaf)
 
         # 3. Pruning under a common, canopy-aware wind. Step 24: when the
-        # wind callable is 3-arg (e.g. the DendroFlow bridge), iterate
+        # wind callable is 3-arg (e.g. the momentum-wind bridge), iterate
         # ``wind_fn → prune-all-trees`` to a fixed point so the surviving
         # canopy is scored against the wind it would actually feel after
         # the cuts. The loop is forest-wide rather than per-tree because
@@ -254,12 +273,21 @@ class Forest:
 
             n_cut_this_iter = 0
             for tree in self.trees:
-                n_cut_this_iter += prune(
-                    tree,
-                    wind=wind,
-                    leaf_drag_S0=tree_cfg.leaf_surface,
-                    cauchy=tree_cfg.cauchy,
-                )
+                # Step 25c: the bridge wrote each tree's per-branch forces
+                # during the wind_fn call above; prune from those when set.
+                if self._wind_uses_stored_forces:
+                    n_cut_this_iter += prune_with_stored_forces(
+                        tree,
+                        leaf_drag_S0=tree_cfg.leaf_surface,
+                        cauchy=tree_cfg.cauchy,
+                    )
+                else:
+                    n_cut_this_iter += prune(
+                        tree,
+                        wind=wind,
+                        leaf_drag_S0=tree_cfg.leaf_surface,
+                        cauchy=tree_cfg.cauchy,
+                    )
                 tree.reorder()
             n_pruned_total += n_cut_this_iter
 

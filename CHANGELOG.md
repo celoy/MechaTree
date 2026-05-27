@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Step 26d follow-ups: `n_sensing_angles` default 2, notebook + bench refresh (2026-05-27)
+
+- Default `WindConfig.n_sensing_angles` is now **2** (was 4): each screened sensing solve is ~11–12 ms/gen, so 2 ≈ halves the sensing cost; the angles stay random per-generation draws from `angle_cdf`, so the directional load still integrates over the run.
+- `notebooks/07_wind_models.ipynb` §3 rewritten from the removed native/dendroflow comparison to the `momentum` model (canopy-mean rotation demo + per-branch wake), with TOC / mechanics / "what's next" prose brought up to date.
+- `benchmarks/bench_momentum_wind_at_scale.py` instrumentation fixed for the Step-26c sensing path (the old tracker broke `wind_fn.sense`); the new `_WindTracker` proxy attributes sensing vs pruning CFD solves separately.
+
+### Profiled — Step 26d: momentum-model island-scale feasibility + parallelism decision (2026-05-27)
+
+- Profiled the momentum step now that 26c added the sensing sweep: the `n_sensing_angles` sensing solves are ~68 % of the wind solves (the bottleneck). Measured that in-process parallelism doesn't pay — a thread pool over the solves is 0.67× (the pure-NumPy column-march is GIL-bound). The real lever (a GIL-free Cython/OpenMP kernel) is deferred to its own step, now justified by the measurement.
+- Feasibility: momentum+sensing is ~linear in branches (1.35 µs/branch at `grid_size=2`); projected island scale (R=200, ~400 k branches) ≈ 0.5 s/gen → 1000 gens ≈ 9 min, 100 k gens ≈ 15 h serial. A cold-start screening-aware tournament with random founders survives and selects. No code change — measurement + decision only.
+
+### Fixed — Step 26: restored the ½ρU² dynamic-pressure factor in `wind_force` (2026-05-27)
+
+- The legacy `wind_force` (ported from the Fortran `mod_tree.f90:637`) omitted the ½ρU² dynamic-pressure factor, folding it into the Cauchy calibration. Restored the ½ (C_D=1) in [`wind_force`](src/mechatree/_core/mechanics.cpp) and uniformly on the leaf-cluster drag (`S0·|U|·U`) across `calculate_stresses` / `prune` / the stored-force variants, so the whole wind load now carries it explicitly — consistent with the momentum CFD kernel.
+- The default `TreeConfig.cauchy` is doubled (2.0e-5 → 4.0e-5) to absorb the now-explicit ½: ½ load × 2× Cauchy reproduces the Fortran/Nat Commun reference stresses bit-for-bit, so the `default` model is behaviour-preserving while physically correct internally. `examples/forest.yaml`, `tests/test_config.py`, `tests/test_mechanics.py` updated.
+
+### Added — Step 26c: sensing unified on the momentum per-branch screened field (2026-05-27)
+
+- Sensing now uses the same screened per-branch wind as pruning (previously it used a uniform unit wind over 4 hardcoded angles while pruning used the screened field — trees reinforced against a load they never felt). New C++ `calculate_stresses_from_stored_forces` ([mechanics.cpp](src/mechatree/_core/mechanics.cpp)) aggregates leaves-to-trunk from the pre-stored `segment_force_`/`segment_wind_` and tracks per-branch `max_stress` (with a `reset_max` flag); Cython `PyTree.calculate_stresses_from_stored_forces` + [mechanics.py](src/mechatree/mechanics.py) wrapper.
+- [`MomentumWindBridge`](src/mechatree/wind/momentum_wind.py) gained `sense(context, theta)` (solve at a uniform inlet U=1, still screened through the canopy, writing per-branch forces) and `sensing_angles(rng, n)`. [`_sense_canopy`](src/mechatree/simulate.py) sweeps `n_sensing_angles` directions for the momentum model (forest-level in `Forest.step`, since screening is mutual) and keeps the per-branch max stress; other models keep the legacy per-tree `calculate_stresses` byte-identically.
+- Config: `WindConfig.angle_samples` renamed to `n_sensing_angles` (the momentum sensing-sweep count; drawn from `angle_cdf`).
+
+### Removed — Step 26: legacy `native` (bulk-thinning) and `dendroflow` wind models (2026-05-27)
+
+- Removed the `native` and `dendroflow` wind models — both collapsed the 3-D wind field to a single canopy-mean scalar broadcast to every branch (a constant wind), which the per-branch `momentum` model supersedes. `WindConfig.model` is now `{default, momentum}` only; the `U_infty` / `z_centers` / `z_representative` config fields and the `dendroflow` optional extra are gone.
+- Deleted `mechatree.wind.dendroflow` + `mechatree.wind.bulk_thinning` modules, the `BulkThinning*` / `make_bulk_thinning_wind_fn` and lazy `BranchWindBridge` / `DendroFlowWindParams` / `make_dendroflow_wind_fn` flat-API surface, `examples/dendroflow_wind.*`, and `benchmarks/bench_wind_fixed_point.py`. `run_storm_replay` (model-agnostic) stays; its tests now drive the `momentum` bridge.
+- Follow-up: notebook 07 §3's "native vs dendroflow vs default" comparison still references the removed models and needs a literate rewrite (doc-only; not in the pytest suite).
+
+### Changed — Step 26b: rename `actuator_disk` → `momentum`, `H` → `grid_size` (2026-05-27)
+
+- The canopy-aware CFD wind model is renamed from `actuator_disk` to **`momentum`** (the per-cell update is a momentum-conservation balance; there is no single actuator disk). Mechanical rename, no behaviour change (401 tests green): module `mechatree.wind.momentum_wind` (+ `_momentum_wind_kernel`), classes `MomentumWindBridge` / `MomentumWindResult`, functions `compute_momentum_wind` / `make_momentum_wind_fn`, YAML `model: momentum`, config-field prefix `momentum_*`, `examples/momentum_wind.yaml`, `docs/momentum_wind_derivation.md`.
+- `WindConfig.H` renamed to **`grid_size`** (shared cell-size knob; default **0.5 → 2.0** — the momentum `O(branches)≈O(cells)` cost knee that still resolves the wake). `native`/`dendroflow` read it as the z-layer thickness, so their config-default cell shifts to 2.0 — set `grid_size` explicitly for the old 0.5. Legacy bridge *params* (`DendroFlowWindParams.H`, `BulkThinningParams.H`, `make_dendroflow_wind_fn(H=)`) keep their internal `H` name.
+- Scaling bench (`grid_size ∈ {1,2,5,10}`): coarsening past 2 saves ~nothing (per-branch work floors the cost) while washing the wake out toward uniform; `max(branch length)=1.0` confirms gs=2 satisfies centroid-binning. Known edge case (deferred): very coarse grids with canopy height < cell (Nz<2) break the diffusion stencil.
+
+### Changed — Step 26a: storm-fixed-per-generation + per-branch-only momentum wind (2026-05-27)
+
+- The actuator-disk wind bridge now samples the storm `(θ, amplitude)` **once per generation** and holds it across the Step-24 fixed-point pruning iterations (was: re-sampled every call, so one generation felt a sequence of *different* storms). Measured effect under a long-tail storm: fixed-point iterations drop from **mean 3.25 / max 8** (4 cap-hits) to **mean 1.83 / max 2** (0 cap-hits) — the cap-hits were largely a re-sampling artifact.
+- Removed the canopy-mean wind mode: per-branch forces are the only `model: actuator_disk` behaviour (a 3-D solve averaged to one scalar is just a constant wind). Deleted `WindConfig.actuator_disk_use_per_branch_forces` and the `use_per_branch_forces` argument on [`ActuatorDiskWindBridge`](src/mechatree/wind/actuator_disk.py) / `make_actuator_disk_wind_fn`. The canopy-mean is retained only as the ε convergence signal for the fixed-point loop.
+- First sub-step of the Step 26 "momentum-wind overhaul" arc (see CLAUDE.md). The iteration-criterion redesign (→ convergence of `# branches pruned`) is deferred until sensing is screening-consistent (Step 26c).
+
+### Added — Step 25c: Option-B per-branch wind force → prune (2026-05-27)
+
+- Per-branch CFD wind force now reaches pruning instead of being collapsed to a canopy-mean and re-broadcast. New opt-in flag `WindConfig.actuator_disk_use_per_branch_forces: bool = False` ([src/mechatree/config.py](src/mechatree/config.py)); default keeps the canopy-mean path byte-identical.
+- C++: two new `Branch` fields `segment_force_` / `segment_wind_` ([src/mechatree/_core/branch.h](src/mechatree/_core/branch.h)) kept separate from the `force_`/`moment_` aggregation accumulator, plus a new `prune_with_stored_forces(tree, leaf_drag_S0, cauchy)` entry ([src/mechatree/_core/pruning.cpp](src/mechatree/_core/pruning.cpp)) that reads the pre-stored per-branch CFD force (skipping the `wind_force` recompute) and uses each branch's own local wind for the leaf-cluster drag term. Shared removal tail factored into a static `apply_cuts` helper.
+- Cython ([src/mechatree/_core/_core.pyx](src/mechatree/_core/_core.pyx)): `PyTree.set_segment_forces_batch` / `set_segment_winds_batch` / `get_segment_force` / `get_segment_wind` and a `prune_with_stored_forces` wrapper; matching free function in [src/mechatree/pruning.py](src/mechatree/pruning.py).
+- [`ActuatorDiskWindBridge`](src/mechatree/wind/actuator_disk.py) gained `use_per_branch_forces`; when set it rotates the kernel's per-branch `F_vec` back to the world frame, builds the per-branch local wind, and writes both onto each tree post-solve (still returns the canopy-mean for the ε-convergence check). [`_prune_to_fixed_point`](src/mechatree/simulate.py) and [`Forest.step`](src/mechatree/forest.py) dispatch to the stored-force prune when the wind fn advertises `writes_segment_forces`.
+- Tests: equivalence regression (stored-force prune reproduces `prune`'s cuts bit-for-bit when fed the canopy-mean force), batch-setter round-trip + non-aliasing + shape validation, bridge flag / write-through / 45° rotation magnitude preservation / empty-forest short-circuit, resolver threading, end-to-end Forest dispatch, and config default + YAML round-trip ([tests/test_wind_actuator_disk.py](tests/test_wind_actuator_disk.py), [tests/test_config.py](tests/test_config.py)).
+- Benchmark: A/B section in [benchmarks/bench_actuator_disk_at_scale.py](benchmarks/bench_actuator_disk_at_scale.py) (`--skip-ab` / `--ab-u-uniform`) — wall-clock ~neutral, but per-branch forces prune more than the canopy-mean (exposed crowns feel the full storm).
+
+### Added — Actuator-disk uniform inflow option (2026-05-27)
+
+- New `WindConfig.actuator_disk_U_uniform: float | None` ([src/mechatree/config.py](src/mechatree/config.py)) — when set, the `model: actuator_disk` path uses a height-independent constant inflow `U_in = K` instead of the log-law (`actuator_disk_ua/z0/kappa` are then ignored). Validated to be positive when set; `None` keeps the log-law default. Threaded through `_resolve_wind_fn` ([src/mechatree/simulate.py](src/mechatree/simulate.py)) into a new `U_uniform` argument on [`ActuatorDiskWindBridge`](src/mechatree/wind/actuator_disk.py) / `make_actuator_disk_wind_fn`.
+- [`notebooks/07_wind_models.ipynb`](notebooks/07_wind_models.ipynb) §3.5 now uses a uniform inflow set to the ~1-in-100-yr storm amplitude, `K = 0.835 - log(1/100)/6 ≈ 1.60` (the project's own long-tail formula at exceedance `U = 1/100`), replacing the inline log-law.
+- [`examples/actuator_disk_wind.yaml`](examples/actuator_disk_wind.yaml) template switched to the uniform inflow (`actuator_disk_U_uniform: 1.60`), with the log-law keys commented as the alternative; added a header note that no code imports the file (it is a copy-paste template).
+- Tests: bridge produces a flat-in-z inlet under `U_uniform` (vs the z-varying log-law), config validation + YAML round-trip, and resolver/factory threading — in [tests/test_wind_actuator_disk.py](tests/test_wind_actuator_disk.py) and [tests/test_config.py](tests/test_config.py).
+
 ### Changed — Legacy folder consolidation (2026-05-26)
 
 - Consolidated legacy material under a single top-level `legacy/` directory.

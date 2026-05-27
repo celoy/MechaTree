@@ -30,8 +30,8 @@ from mechatree.config import Config, LightConfig, TreeConfig, WindConfig
 from mechatree.genome import AllocationModel, SafetyModel, models_from_config
 from mechatree.growth import primary_growth, requested_growth, secondary_growth
 from mechatree.light import Sun, aggregate_onto_trees, extract_leaves, intercept
-from mechatree.mechanics import calculate_stresses
-from mechatree.pruning import prune
+from mechatree.mechanics import calculate_stresses, calculate_stresses_from_stored_forces
+from mechatree.pruning import prune, prune_with_stored_forces
 
 # A "wind function" maps (generation, rng[, context]) -> a 3-tuple wind vector.
 # Two arities are accepted (arity detected at call time, same pattern as
@@ -39,8 +39,8 @@ from mechatree.pruning import prune
 #   - ``cb(generation, rng)`` — classic Step-11 shape; ignores the tree state.
 #   - ``cb(generation, rng, context)`` — receives the live ``PyTree`` (in
 #     ``grow_tree``) or the ``Forest`` (in ``Forest.step``) as the third arg.
-#     Used by canopy-aware wind models (e.g. the DendroFlow bridge in
-#     ``mechatree.wind.dendroflow``).
+#     Used by canopy-aware wind models (e.g. the momentum-wind bridge in
+#     ``mechatree.wind.momentum_wind``).
 # The ``rng`` is the same numpy.random.Generator used elsewhere in the Python
 # orchestrator; the tree's own C++ RNG (used inside primary_growth and prune)
 # is seeded separately.
@@ -77,6 +77,43 @@ class TreeStats:
     n_wind_iterations: int = 1
 
 
+def _sense_canopy(
+    context,
+    trees: list,
+    wind_fn: WindFn,
+    wind_uses_stored_forces: bool,
+    n_sensing_angles: int,
+    rng: np.random.Generator,
+    *,
+    leaf_drag_S0: float,
+    cauchy: float,
+) -> None:
+    """Phase-2 sensing — write per-branch ``max_stress`` for the growth law.
+
+    Step 26c: for the momentum model (``wind_uses_stored_forces``), sweep
+    ``n_sensing_angles`` directions sampled from the storm angle distribution.
+    Each is a momentum solve at a **uniform inlet U = 1** (the wind scale,
+    still screened through the canopy), after which the per-branch screened
+    forces drive a stress pass; the per-branch max over directions is kept.
+    Sensing and pruning then see the *same* screened field — a sheltered
+    branch reinforces against the weaker wind it actually feels.
+
+    For every other wind model (``default`` / user 2-arg callables) this is
+    the legacy per-tree uniform 4-angle :func:`calculate_stresses`, leaving
+    those paths byte-identical (no extra RNG draws)."""
+    if wind_uses_stored_forces and trees:
+        angles = wind_fn.sensing_angles(rng, n_sensing_angles)
+        for k, theta in enumerate(angles):
+            wind_fn.sense(context, theta)
+            for tree in trees:
+                calculate_stresses_from_stored_forces(
+                    tree, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy, reset_max=(k == 0)
+                )
+    else:
+        for tree in trees:
+            calculate_stresses(tree, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy)
+
+
 def _prune_to_fixed_point(
     tree: PyTree,
     wind_fn: WindFn,
@@ -88,6 +125,7 @@ def _prune_to_fixed_point(
     cauchy: float,
     max_iterations: int,
     eps_rel: float,
+    use_stored_forces: bool = False,
 ) -> tuple[tuple[float, float, float], int, int, bool]:
     """One generation's wind → prune fixed-point loop. Step 24.
 
@@ -95,7 +133,7 @@ def _prune_to_fixed_point(
 
     For the default 2-arg ``wind_fn`` (wind independent of canopy), this
     is exactly the Step-11 single-pass behaviour — bit-identical. For a
-    3-arg ``wind_fn`` (canopy-aware, e.g. the DendroFlow bridge), the
+    3-arg ``wind_fn`` (canopy-aware, e.g. the momentum-wind bridge), the
     loop iterates ``wind_fn → prune`` until one of:
 
     * the most recent ``prune`` cut nothing (the true fixed point), or
@@ -104,10 +142,21 @@ def _prune_to_fixed_point(
       change nothing meaningful — the cheap early exit), or
     * the iteration count hits ``max_iterations`` (safety cap; the
       caller is expected to emit a warning once per run).
+
+    When ``use_stored_forces`` (Step 25c, option B — the momentum-wind
+    bridge wrote per-branch forces during the ``wind_fn`` call), each
+    sweep uses ``prune_with_stored_forces`` so branches are scored against
+    their own local CFD wind. ``wind`` is still tracked for the ε exit.
     """
     canopy_aware = wind_arity >= 3
+
+    def _prune(t: PyTree) -> int:
+        if use_stored_forces:
+            return prune_with_stored_forces(t, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy)
+        return prune(t, wind=wind, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy)
+
     wind = wind_fn(gen, rng, tree) if canopy_aware else wind_fn(gen, rng)
-    n_cut = prune(tree, wind=wind, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy)
+    n_cut = _prune(tree)
     tree.reorder()
     n_pruned_total = n_cut
     n_iter = 1
@@ -123,7 +172,7 @@ def _prune_to_fixed_point(
             ref = max(math.hypot(prev_wind[0], prev_wind[1]), 1e-6)
             if delta / ref < eps_rel:
                 return wind, n_pruned_total, n_iter, False
-        n_cut = prune(tree, wind=wind, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy)
+        n_cut = _prune(tree)
         tree.reorder()
         n_pruned_total += n_cut
         if n_cut == 0:
@@ -249,9 +298,9 @@ def grow_tree(
         Optional wind callable. Two arities are accepted: ``(generation, rng)``
         — classic shape, ignored tree state — or ``(generation, rng, tree)``,
         which receives the live ``PyTree`` as the third argument (used by the
-        DendroFlow bridge). When ``None``, the wind callable is resolved from
+        momentum-wind bridge). When ``None``, the wind callable is resolved from
         ``config.wind``: ``model: default`` (Fortran-faithful rotating wind) or
-        ``model: dendroflow`` (canopy-aware streamwise mean).
+        ``model: momentum`` (canopy-aware screening).
     sun:
         Optional ``Sun``. Default = ``Sun()`` (4 elevations x 8 azimuths).
     on_step:
@@ -312,6 +361,10 @@ def grow_tree(
 
     cb_arity = _callback_arity(on_step) if on_step is not None else 0
     wind_arity = _callback_arity(wind_fn)
+    # Step 25c (option B): the momentum-wind bridge advertises that it writes
+    # per-branch forces during its call; when so, prune from those instead of
+    # the canopy-mean. Absent on every other wind fn → False → unchanged.
+    wind_uses_stored_forces = getattr(wind_fn, "writes_segment_forces", False)
 
     tree = make_seed_tree(tree_cfg)
     tree.set_seed(seed & 0xFFFFFFFF)
@@ -328,8 +381,19 @@ def grow_tree(
         intercept(leaves, sun, leaf_transparency=leaf_transparency)
         aggregate_onto_trees(leaves, [tree])
 
-        # 2. Mechanics.
-        calculate_stresses(tree, leaf_drag_S0=tree_cfg.leaf_surface, cauchy=tree_cfg.cauchy)
+        # 2. Mechanics — sensing. For the momentum model this sweeps
+        # ``n_sensing_angles`` screened directions (Step 26c); otherwise the
+        # legacy uniform 4-angle stress sweep.
+        _sense_canopy(
+            tree,
+            [tree],
+            wind_fn,
+            wind_uses_stored_forces,
+            wind_cfg.n_sensing_angles,
+            rng,
+            leaf_drag_S0=tree_cfg.leaf_surface,
+            cauchy=tree_cfg.cauchy,
+        )
 
         # 3. Growth (reads max_stress + nb_leaves; writes vol_growth, diameter).
         requested_growth(tree, safety, maintenance_h=tree_cfg.maintenance_h)
@@ -350,6 +414,7 @@ def grow_tree(
             cauchy=tree_cfg.cauchy,
             max_iterations=max_pruning_iterations,
             eps_rel=wind_eps_rel,
+            use_stored_forces=wind_uses_stored_forces,
         )
         # cap=1 is the explicit "single-pass mode" knob (recovers the
         # pre-Step-24 behaviour for A/B comparisons), not a cap violation
@@ -464,12 +529,9 @@ def _resolve_wind_fn(config: Config | TreeConfig) -> WindFn:
       via :func:`make_default_wind_fn`, threading in the Step-25
       ``amplitude_cdf`` / ``angle_cdf`` samplers when set. If neither
       is set the closure reproduces :func:`default_wind_fn` exactly.
-    - ``"native"``: Step 25's in-repo bulk-thinning bridge. Amplitude
-      sampler scales ``U_infty`` per generation; angle sampler rotates
-      the canopy.
-    - ``"dendroflow"``: the original DendroFlow bridge (Step 17). Storm
-      angle is currently not honoured here (always ``+x`` in the world
-      frame); ``amplitude_cdf`` is ignored too.
+    - ``"momentum"``: the native 3-D momentum-wind CFD bridge (the only
+      canopy-aware / screening model; Step 26 removed the legacy
+      ``native`` and ``dendroflow`` bridges).
     """
     if not isinstance(config, Config):
         return default_wind_fn
@@ -477,34 +539,20 @@ def _resolve_wind_fn(config: Config | TreeConfig) -> WindFn:
     wc = config.wind
     amp_sampler, angle_sampler = _build_storm_samplers(wc)
 
-    if wc.model == "dendroflow":
-        from mechatree.wind.dendroflow import make_dendroflow_wind_fn
+    if wc.model == "momentum":
+        from mechatree.wind.momentum_wind import MomentumWindBridge
 
-        return make_dendroflow_wind_fn(
-            U_infty=wc.U_infty,
-            z_centers=wc.z_centers,
-            H=wc.H,
+        return MomentumWindBridge(
+            grid_size=wc.grid_size,
+            nu_diff=wc.momentum_nu_diff,
+            pad_x=wc.momentum_pad_x,
+            pad_y=wc.momentum_pad_y,
+            pad_z=wc.momentum_pad_z,
+            ua=wc.momentum_ua,
+            z0=wc.momentum_z0,
+            kappa=wc.momentum_kappa,
+            U_uniform=wc.momentum_U_uniform,
             C_D=wc.C_D,
-            z_representative=wc.z_representative,
-        )
-
-    if wc.model == "native":
-        from mechatree.wind.bulk_thinning import (
-            BulkThinningParams,
-            BulkThinningWindBridge,
-        )
-
-        if wc.U_infty is not None and wc.z_centers is not None:
-            params = BulkThinningParams(
-                U_infty=np.asarray(wc.U_infty, dtype=float),
-                z_centers=np.asarray(wc.z_centers, dtype=float),
-                H=wc.H,
-                C_D=wc.C_D,
-            )
-        else:
-            params = BulkThinningParams.uniform(U=1.0, H=wc.H)
-        return BulkThinningWindBridge(
-            params,
             angle_sampler=angle_sampler,
             amplitude_sampler=amp_sampler,
         )

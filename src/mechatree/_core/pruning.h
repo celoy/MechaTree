@@ -23,4 +23,16 @@ int prune(Tree& tree,
           double leaf_drag_S0,
           double cauchy);
 
+// Step 25c (option B): same pruning pass, but instead of recomputing each
+// branch's woody-segment drag from a single canopy-mean wind via
+// `wind_force`, it reads the per-branch force the momentum-wind CFD already
+// stored on each branch (`Branch::segment_force_`) and the per-branch local
+// wind (`Branch::segment_wind_`, used for the leaf-cluster drag term on
+// terminals). The bridge must have populated those fields for the current
+// branch set before calling this. Otherwise byte-for-byte identical to
+// `prune` (same RNG draw structure, Weibull test, removal tail).
+int prune_with_stored_forces(Tree& tree,
+                             double leaf_drag_S0,
+                             double cauchy);
+
 #endif

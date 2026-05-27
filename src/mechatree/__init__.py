@@ -15,9 +15,6 @@ both spellings stay working so existing scripts don't break.
 
 from __future__ import annotations
 
-from importlib.util import find_spec
-from typing import TYPE_CHECKING
-
 from mechatree import evolution
 from mechatree._core import PyTree
 from mechatree.config import (
@@ -72,12 +69,6 @@ from mechatree.stats import (
     strahler_summary,
     tokunaga_matrix,
 )
-from mechatree.wind.bulk_thinning import (
-    BulkThinningParams,
-    BulkThinningResult,
-    BulkThinningWindBridge,
-    make_bulk_thinning_wind_fn,
-)
 from mechatree.wind.distributions import (
     Distribution,
     default_amplitude_sampler,
@@ -87,51 +78,14 @@ from mechatree.wind.replay import StormPreSnapshot, StormSnapshot, run_storm_rep
 
 __version__ = "0.0.0.dev0"
 
-# Optional DendroFlow bridge surface — lazy so a bare install never tries to
-# import DendroFlow. ``mt.BranchWindBridge`` works iff
-# ``pip install 'mechatree[dendroflow]'`` (or a sibling editable install) made
-# the ``dendroflow`` package importable.
-_DENDROFLOW_NAMES = frozenset(
-    {
-        "BranchWindBridge",
-        "DendroFlowWindParams",
-        "make_dendroflow_wind_fn",
-    }
-)
-
-if TYPE_CHECKING:  # type-checker view only; runtime uses __getattr__
-    from mechatree.wind.dendroflow import (  # noqa: F401
-        BranchWindBridge,
-        DendroFlowWindParams,
-        make_dendroflow_wind_fn,
-    )
-
-
-def __getattr__(name: str):
-    if name in _DENDROFLOW_NAMES:
-        if find_spec("dendroflow") is None:
-            raise AttributeError(
-                f"mechatree.{name} requires the 'dendroflow' extra; "
-                "install with `pip install 'mechatree[dendroflow]'`."
-            )
-        from mechatree.wind import dendroflow as _df
-
-        return getattr(_df, name)
-    raise AttributeError(f"module 'mechatree' has no attribute {name!r}")
-
 
 __all__ = [
     "AllocationModel",
-    "BranchWindBridge",
-    "BulkThinningParams",
-    "BulkThinningResult",
-    "BulkThinningWindBridge",
     "CallbackAllocation",
     "CallbackSafety",
     "Config",
     "ConstantAllocation",
     "ConstantSafety",
-    "DendroFlowWindParams",
     "Distribution",
     "Forest",
     "ForestConfig",
@@ -169,9 +123,7 @@ __all__ = [
     "load_all_champions",
     "load_champion",
     "load_config",
-    "make_bulk_thinning_wind_fn",
     "make_default_wind_fn",
-    "make_dendroflow_wind_fn",
     "mean_distance_to_leaves",
     "mean_stream_length",
     "models_from_config",

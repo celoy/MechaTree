@@ -12,31 +12,14 @@ for back-compat.
 
 from __future__ import annotations
 
-from importlib.util import find_spec
-
 import mechatree as mt
 from mechatree.config import load_config as deep_load_config
 from mechatree.simulate import grow_tree as deep_grow_tree
 
-# Names that are part of ``mt.__all__`` but only resolve when the
-# ``dendroflow`` extra is installed (gated via the lazy ``__getattr__`` in
-# :mod:`mechatree`). On a bare install these raise ``AttributeError`` —
-# that *is* the documented behaviour — so the public-API test below skips
-# them when the extra is unavailable.
-_DENDROFLOW_OPTIONAL = frozenset(
-    {"BranchWindBridge", "DendroFlowWindParams", "make_dendroflow_wind_fn"}
-)
-_HAS_DENDROFLOW = find_spec("dendroflow") is not None
-
 
 def test_all_public_names_resolve():
-    """Every name in `mt.__all__` must be importable as `mt.<name>`,
-    except the DendroFlow extras when the optional package is missing."""
-    missing = [
-        name
-        for name in mt.__all__
-        if not hasattr(mt, name) and not (name in _DENDROFLOW_OPTIONAL and not _HAS_DENDROFLOW)
-    ]
+    """Every name in `mt.__all__` must be importable as `mt.<name>`."""
+    missing = [name for name in mt.__all__ if not hasattr(mt, name)]
     assert not missing, f"missing flat-API names: {missing}"
 
 

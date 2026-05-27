@@ -50,14 +50,6 @@ notebooks = [
     "ipykernel>=6.29",
     "nbstripout>=0.7",
 ]
-# DendroFlow bridge (Step 17 / DendroFlow M6). Enables the
-# ``mechatree.wind.dendroflow`` module, which wraps DendroFlow's
-# ``BulkThinningBranchWindModel`` as a ``WindFn`` for ``grow_tree`` / ``Forest``.
-# DendroFlow is not yet on PyPI; install from a local checkout with
-# ``uv pip install -e ../DendroFlow`` alongside this extra.
-dendroflow = [
-    "dendroflow>=0.1",
-]
 # Closed-form genome expressions (Step 15). Enables
 # ``mechatree.sympy_genome`` and the ``str`` form of YAML ``genome.safety``
 # / ``genome.p_seeds`` / etc.
@@ -68,16 +60,6 @@ sympy = [
 [project.urls]
 Homepage = "https://github.com/celoy/MechaTree"
 Paper = "https://doi.org/10.1038/s41467-017-00995-6"
-
-# DendroFlow isn't on PyPI yet — point `uv` at the local sibling checkout
-# so the `dendroflow` optional extra can resolve during development.
-# Gated on `extra = "dendroflow"` so `uv pip install -e .[dev]` on CI does
-# NOT try to resolve `../DendroFlow` (which doesn't exist on the runner).
-# Drop this block once DendroFlow ships to PyPI.
-[tool.uv.sources]
-dendroflow = [
-    { path = "../DendroFlow", editable = true, extra = "dendroflow" },
-]
 
 [tool.setuptools.packages.find]
 where = ["src"]

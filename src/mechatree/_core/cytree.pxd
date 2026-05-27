@@ -90,6 +90,10 @@ cdef extern from "branch.h" nogil:
         void   setForce(double x, double y, double z)
         double momentAt(size_t i)
         void   setMoment(double x, double y, double z)
+        double segmentForceAt(size_t i)
+        void   setSegmentForce(double x, double y, double z)
+        double segmentWindAt(size_t i)
+        void   setSegmentWind(double x, double y, double z)
 
 cdef extern from "tree.h" nogil:
     cdef cppclass Tree:
@@ -148,6 +152,8 @@ cdef extern from "mechanics.h" nogil:
         array3d& moment) except +
     void cpp_calculate_stresses "calculate_stresses"(
         Tree& tree, double leaf_drag_S0, double cauchy) except +
+    void cpp_calculate_stresses_from_stored_forces "calculate_stresses_from_stored_forces"(
+        Tree& tree, double leaf_drag_S0, double cauchy, bint reset_max) except +
 
 cdef extern from "growth.h" nogil:
     void cpp_requested_growth "requested_growth"(
@@ -166,6 +172,10 @@ cdef extern from "pruning.h" nogil:
     int cpp_prune "prune"(
         Tree& tree,
         const array3d& wind,
+        double leaf_drag_S0,
+        double cauchy) except +
+    int cpp_prune_with_stored_forces "prune_with_stored_forces"(
+        Tree& tree,
         double leaf_drag_S0,
         double cauchy) except +
 

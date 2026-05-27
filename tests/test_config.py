@@ -13,7 +13,7 @@ def test_treeconfig_defaults():
     assert cfg.twig_length == 1.0
     assert cfg.twig_diameter == 0.1
     assert cfg.leaf_surface == 0.25
-    assert cfg.cauchy == pytest.approx(2.0e-5)
+    assert cfg.cauchy == pytest.approx(4.0e-5)
     assert cfg.volume_ratio_leaf == 4.0
     assert cfg.maintenance_h == 0.02
     assert cfg.theta1 == pytest.approx(math.pi / 4)
@@ -71,7 +71,7 @@ def test_lightconfig_validation():
 def test_config_from_yaml_example_file():
     """The example config in examples/forest.yaml loads cleanly."""
     cfg = load_config(Path(__file__).parent.parent / "examples" / "forest.yaml")
-    assert cfg.tree.cauchy == pytest.approx(2.0e-5)
+    assert cfg.tree.cauchy == pytest.approx(4.0e-5)
     assert cfg.tree.volume_ratio_leaf == 4.0
     assert cfg.light.n_elevations == 4
     assert cfg.n_generations > 0
@@ -227,3 +227,44 @@ def test_windconfig_step24_yaml_roundtrip(tmp_path):
     cfg = Config.from_yaml(yml)
     assert cfg.wind.max_pruning_iterations == 3
     assert cfg.wind.wind_convergence_eps_rel == pytest.approx(0.05)
+
+
+# Momentum-wind uniform-inflow override (U_in = K, independent of z).
+
+
+def test_windconfig_momentum_u_uniform_default_is_none():
+    wc = WindConfig(model="momentum")
+    assert wc.momentum_U_uniform is None
+
+
+def test_windconfig_momentum_u_uniform_accepts_positive():
+    wc = WindConfig(model="momentum", momentum_U_uniform=1.6)
+    assert wc.momentum_U_uniform == pytest.approx(1.6)
+
+
+def test_windconfig_momentum_u_uniform_rejects_nonpositive():
+    with pytest.raises(ValueError, match="momentum_U_uniform"):
+        WindConfig(model="momentum", momentum_U_uniform=0.0)
+    with pytest.raises(ValueError, match="momentum_U_uniform"):
+        WindConfig(model="momentum", momentum_U_uniform=-2.0)
+
+
+def test_windconfig_momentum_u_uniform_yaml_roundtrip(tmp_path):
+    yml = tmp_path / "cfg.yaml"
+    yml.write_text("wind:\n  model: momentum\n  grid_size: 1.0\n  momentum_U_uniform: 1.60\n")
+    cfg = Config.from_yaml(yml)
+    assert cfg.wind.model == "momentum"
+    assert cfg.wind.momentum_U_uniform == pytest.approx(1.60)
+
+
+def test_windconfig_n_sensing_angles_default_and_validation():
+    assert WindConfig().n_sensing_angles == 2
+    with pytest.raises(ValueError, match="n_sensing_angles"):
+        WindConfig(n_sensing_angles=0)
+
+
+def test_windconfig_n_sensing_angles_yaml_roundtrip(tmp_path):
+    yml = tmp_path / "cfg.yaml"
+    yml.write_text("wind:\n  model: momentum\n  n_sensing_angles: 8\n")
+    cfg = Config.from_yaml(yml)
+    assert cfg.wind.n_sensing_angles == 8

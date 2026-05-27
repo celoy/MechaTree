@@ -32,7 +32,12 @@ class TreeConfig:
     twig_length: float = 1.0  # was TwigLength
     twig_diameter: float = 0.1  # was TwigDiameter
     leaf_surface: float = 0.25  # was LeafSurface (S0)
-    cauchy: float = 2.0e-5  # was Cauchy (Cy) — runtime value from Forest.ini
+    # was Cauchy (Cy). Doubled from the Forest.ini runtime value 2.0e-5: the
+    # ½ρU² dynamic-pressure factor that the Fortran omitted from the drag was
+    # restored in the C++ mechanics (mechanics.cpp wind_force + the leaf term),
+    # halving the whole wind load, so 2× Cauchy reproduces the Nat Commun
+    # reference stresses bit-for-bit.
+    cauchy: float = 4.0e-5
     # was VolumeRatioLeaf; matches the Nat Commun reference V_prod = 4 V_0 l
     volume_ratio_leaf: float = 4.0
     maintenance_h: float = 0.02  # was MaintenanceH
@@ -184,27 +189,26 @@ class GenomeConfig:
 class WindConfig:
     """Wind model selection + parameters.
 
-    Three models, all valid for the top-level ``wind:`` YAML block:
+    Two models, both valid for the top-level ``wind:`` YAML block:
 
     - ``model: default`` keeps the Fortran-faithful storm wind
-      (:func:`mechatree.simulate.default_wind_fn`) — a single direction
-      per generation, no canopy feedback. The only model that worked
-      pre-Step-17. ``U_infty`` / ``z_centers`` / ``H`` / ``C_D`` are
-      ignored here.
-    - ``model: native`` (Step 25) selects the in-repo canopy-aware
-      bulk-thinning model (:mod:`mechatree.wind.bulk_thinning`). Default
-      free stream is **uniform** ``U_infty = 1`` on ``z ∈ [0, 50]`` with
-      ``H = 0.5`` (no boundary layer); set ``U_infty`` / ``z_centers``
-      explicitly to opt into a log/power-law profile. Honours the
-      ``angle_cdf`` and ``amplitude_cdf`` storm distributions so a
-      tilted storm actually rotates the canopy in the wind frame.
-    - ``model: dendroflow`` selects the optional DendroFlow bridge
-      (Step 17). Useful when you want DendroFlow's full k-ε machinery
-      eventually; for plain bulk-thinning prefer ``native``. Requires
-      the ``dendroflow`` optional extra. ``U_infty`` and ``z_centers``
-      are required (same length, ``z_centers`` strictly monotone with
-      ``z_centers[0] - H/2 <= 0``). Currently solves in the world ``+x``
-      frame only — does not yet honour ``angle_cdf``.
+      (:func:`mechatree.simulate.default_wind_fn`) — a single, spatially
+      uniform direction per generation, no canopy feedback (no screening).
+    - ``model: momentum`` selects the native 3-D momentum-wind CFD solver
+      in :mod:`mechatree.wind.momentum_wind` — the canonical canopy-aware
+      (screening) path. Builds a structured grid from the forest bounding
+      box (cell size ``grid_size``, padded by ``momentum_pad_x/y/z``), runs
+      the simplified Eloy-style per-branch drag kernel + per-cell momentum
+      balance + cross-stream diffusion (single dimensionless knob
+      ``momentum_nu_diff``). Inflow is a log-law parameterised by
+      ``momentum_ua / z0 / kappa`` by default; set ``momentum_U_uniform``
+      for a height-independent constant inflow ``U_in = K`` instead
+      (``ua / z0 / kappa`` then ignored). Each branch is scored against its
+      own local screened wind in pruning (Step 26a — there is no
+      canopy-mean wind mode). See ``docs/momentum_wind_derivation.md``.
+      (Step 26: the legacy ``native`` bulk-thinning and ``dendroflow``
+      bridges were removed — both collapsed the field to a scalar, which is
+      just a constant wind; ``momentum`` supersedes them.)
 
     Step 24 knobs (canopy-aware wind only):
 
@@ -217,27 +221,29 @@ class WindConfig:
     Step 25 knobs (storm statistics, all wind models):
 
     - ``amplitude_cdf`` (SymPy CDF in ``a``) drives the per-generation
-      storm magnitude in the default wind, and scales ``U_infty`` per
-      generation in canopy-aware models. ``None`` keeps the legacy
+      storm magnitude in the default wind, and scales the inflow per
+      generation in the ``momentum`` model. ``None`` keeps the legacy
       Fortran formula (``a = 0.835 - log(U)/6`` for default; ``a = 1``
-      constant scaling for canopy-aware models).
+      constant scaling for ``momentum``).
     - ``angle_cdf`` (SymPy CDF in ``theta``) drives the storm direction.
       ``None`` keeps the legacy behaviour (``angle = generation rad``
-      for default; storm always ``+x`` for ``dendroflow``;
-      ``+x`` for ``native`` unless overridden).
-    - ``angle_samples`` is the count of storm-direction samples per
-      generation passed to wind models that support multi-angle storms
-      (currently informational only — the C++ sensing sweep in
-      ``calculate_stresses`` is still pinned to its hardcoded 4 angles;
-      generalising that is a Step 25 follow-up).
+      for default; storm ``+x`` for ``momentum`` unless overridden).
+    - ``n_sensing_angles`` (Step 26c) is the number of directions the
+      ``momentum`` sensing sweep evaluates each generation: for each, the
+      momentum field is solved at a uniform inlet ``U = 1`` (still screened
+      through the canopy) and the per-branch max stress over the directions
+      drives growth/safety. The directions are drawn from ``angle_cdf``
+      (uniform ``[0, 2π)`` when unset). Only used by ``model: momentum``;
+      the ``default`` model keeps the legacy hardcoded 4-angle unit-wind
+      sweep with no screening.
     """
 
     model: str = "default"
-    U_infty: tuple[float, ...] | None = None
-    z_centers: tuple[float, ...] | None = None
-    H: float = 0.5
+    # Grid cell size for the momentum model (Step 26b: renamed from the old
+    # ``H``). The 3-D cell edge. Default 2 is the O(branches)≈O(cells) cost
+    # knee that still resolves the vertical + intra-crown wind gradient.
+    grid_size: float = 2.0
     C_D: float = 1.0
-    z_representative: str = "mean"
     max_pruning_iterations: int = 8
     wind_convergence_eps_rel: float = 0.01
     # Step 25: tunable storm distributions. SymPy CDFs in the documented
@@ -246,7 +252,27 @@ class WindConfig:
     # these fields keep their behaviour.
     amplitude_cdf: str | None = None
     angle_cdf: str | None = None
-    angle_samples: int = 4
+    # Step 26c/26d: number of screened directions the momentum sensing sweep
+    # evaluates per generation, each a fresh random draw from angle_cdf. 2 is
+    # the default (each ~halves the sensing wall-clock vs 4); over generations
+    # the random redraw still integrates the directional load.
+    n_sensing_angles: int = 2
+    # Momentum-wind CFD parameters (only used when model='momentum').
+    # Defaults: log-law inflow with ua=0.4, z0=0.1, kappa=0.41; cell
+    # padding around the canopy bounding box; single dimensionless
+    # cross-stream diffusion knob nu_diff = 0.03 (matches the
+    # historical k-ε defaults — see docs/momentum_wind_derivation.md).
+    momentum_pad_x: float = 12.0
+    momentum_pad_y: float = 2.0
+    momentum_pad_z: float = 3.0
+    momentum_ua: float = 0.4
+    momentum_z0: float = 0.1
+    momentum_kappa: float = 0.41
+    momentum_nu_diff: float = 0.03
+    # Uniform inflow override: when set, the momentum-wind model uses a
+    # height-independent constant inflow U_in = momentum_U_uniform
+    # and the log-law (ua/z0/kappa) is ignored. ``None`` keeps the log-law.
+    momentum_U_uniform: float | None = None
 
     def __post_init__(self) -> None:
         if self.max_pruning_iterations < 1:
@@ -258,8 +284,10 @@ class WindConfig:
                 "WindConfig.wind_convergence_eps_rel must be non-negative, "
                 f"got {self.wind_convergence_eps_rel}"
             )
-        if self.angle_samples < 1:
-            raise ValueError(f"WindConfig.angle_samples must be >= 1, got {self.angle_samples}")
+        if self.n_sensing_angles < 1:
+            raise ValueError(
+                f"WindConfig.n_sensing_angles must be >= 1, got {self.n_sensing_angles}"
+            )
         if self.amplitude_cdf is not None and not (
             isinstance(self.amplitude_cdf, str) and self.amplitude_cdf.strip()
         ):
@@ -272,38 +300,34 @@ class WindConfig:
             raise ValueError(
                 "WindConfig.angle_cdf must be a non-empty SymPy expression in 'theta', or None"
             )
-        if self.model not in ("default", "native", "dendroflow"):
+        if self.model not in ("default", "momentum"):
             raise ValueError(
-                f"WindConfig.model must be 'default', 'native', or 'dendroflow', got {self.model!r}"
+                f"WindConfig.model must be one of 'default'/'momentum', got {self.model!r}"
             )
-        if self.model == "dendroflow":
-            if self.U_infty is None or self.z_centers is None:
-                raise ValueError(
-                    "WindConfig: U_infty and z_centers are required when model='dendroflow'"
-                )
-            if len(self.U_infty) != len(self.z_centers):
-                raise ValueError(
-                    "WindConfig: U_infty and z_centers must have the same length; "
-                    f"got {len(self.U_infty)} and {len(self.z_centers)}"
-                )
-            if len(self.U_infty) < 2:
-                raise ValueError("WindConfig: U_infty / z_centers must have >= 2 entries")
-            zs = list(self.z_centers)
-            if any(zs[i + 1] <= zs[i] for i in range(len(zs) - 1)):
-                raise ValueError("WindConfig.z_centers must be strictly monotone increasing")
-            if self.H <= 0.0:
-                raise ValueError(f"WindConfig.H must be positive, got {self.H}")
+        if self.model == "momentum":
+            if self.grid_size <= 0.0:
+                raise ValueError(f"WindConfig.grid_size must be positive, got {self.grid_size}")
             if self.C_D <= 0.0:
                 raise ValueError(f"WindConfig.C_D must be positive, got {self.C_D}")
-            if zs[0] - 0.5 * self.H > 0.0:
+            for name, value in (
+                ("momentum_pad_x", self.momentum_pad_x),
+                ("momentum_pad_y", self.momentum_pad_y),
+                ("momentum_pad_z", self.momentum_pad_z),
+            ):
+                if value < 0.0:
+                    raise ValueError(f"WindConfig.{name} must be non-negative, got {value}")
+            for name, value in (
+                ("momentum_ua", self.momentum_ua),
+                ("momentum_z0", self.momentum_z0),
+                ("momentum_kappa", self.momentum_kappa),
+                ("momentum_nu_diff", self.momentum_nu_diff),
+            ):
+                if value <= 0.0:
+                    raise ValueError(f"WindConfig.{name} must be positive, got {value}")
+            if self.momentum_U_uniform is not None and self.momentum_U_uniform <= 0.0:
                 raise ValueError(
-                    "WindConfig.z_centers[0] - H/2 must be <= 0 so the trunk base "
-                    f"is covered; got z_centers[0]={zs[0]} H={self.H}"
-                )
-            if self.z_representative not in ("mean", "max", "base"):
-                raise ValueError(
-                    "WindConfig.z_representative must be 'mean'/'max'/'base', "
-                    f"got {self.z_representative!r}"
+                    "WindConfig.momentum_U_uniform must be positive when set, "
+                    f"got {self.momentum_U_uniform}"
                 )
 
 

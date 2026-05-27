@@ -6,9 +6,9 @@ Two distributions plug into the simulator:
   :func:`mechatree.simulate.default_wind_fn`. The default reproduces the
   Fortran formula ``a = 0.835 - log(U)/6`` (a shifted exponential),
   expressed as its CDF ``F(a) = 1 - exp(-6 * (a - 0.835))``.
-- **Angle distribution** drives both the sensing sweep (``angle_samples``
-  angles per generation fed into the multi-angle stress calculation in
-  ``calculate_stresses``) and the storm direction. Default uniform on
+- **Angle distribution** drives both the ``momentum`` sensing sweep
+  (``n_sensing_angles`` directions per generation, each a screened stress
+  pass) and the per-generation storm direction. Default uniform on
   ``[0, 2π)``.
 
 The CDF is the user-facing primitive. SymPy attempts to invert it

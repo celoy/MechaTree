@@ -28,4 +28,24 @@ def calculate_stresses(tree: PyTree, leaf_drag_S0: float, cauchy: float) -> None
     tree.calculate_stresses(leaf_drag_S0, cauchy)
 
 
-__all__ = ["wind_force", "calculate_stresses"]
+def calculate_stresses_from_stored_forces(
+    tree: PyTree, leaf_drag_S0: float, cauchy: float, reset_max: bool
+) -> None:
+    """One sensing angle's stress pass from the per-branch forces the
+    momentum-wind bridge stored on each branch (Step 26c).
+
+    Reads ``segment_force_`` / ``segment_wind_`` (set by the bridge's
+    sensing solve for this angle) and writes per-branch ``stress``. Pass
+    ``reset_max=True`` on the first sensing angle to seed ``max_stress``,
+    then ``False`` so subsequent angles accumulate the per-branch max. This
+    lets the growth/safety genome reinforce against the *screened* wind a
+    branch actually feels, consistent with pruning.
+    """
+    tree.calculate_stresses_from_stored_forces(leaf_drag_S0, cauchy, reset_max)
+
+
+__all__ = [
+    "wind_force",
+    "calculate_stresses",
+    "calculate_stresses_from_stored_forces",
+]

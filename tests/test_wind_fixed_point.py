@@ -1,11 +1,11 @@
 """Tests for the Step 24 wind ↔ pruning fixed-point loop.
 
 The loop fires only when the wind callback is 3-arg (canopy-aware,
-e.g. the DendroFlow bridge). The default 2-arg wind path is
+e.g. the momentum-wind bridge). The default 2-arg wind path is
 byte-identical to before Step 24.
 
 A note on the loop's direction: for the bulk-thinning canopy model
-(DendroFlow's :class:`BulkThinningBranchWindModel`, and the synthetic
+(a bulk-thinning canopy model, and the synthetic
 ``canopy_intensifying_wind`` below), thinning the canopy raises the
 mean wind on the survivors, so the loop iterates toward MORE cuts than
 the single-pass would produce, not fewer. That's the physically
@@ -40,11 +40,11 @@ from mechatree.simulate import (
 class CanopyIntensifyingWind:
     """A toy 3-arg ``WindFn`` whose magnitude grows as the canopy thins.
 
-    Mirrors the qualitative behaviour of DendroFlow's bulk thinning
+    Mirrors the qualitative behaviour of a bulk-thinning canopy
     (verified empirically: dropping branches raises ``canopy_mean``)
-    while staying fully deterministic and DendroFlow-independent. Use
+    while staying fully deterministic and self-contained. Use
     for tests that need a controlled canopy-aware wind without
-    depending on the optional ``dendroflow`` extra.
+    without any optional extras.
 
     The wind on a tree/forest with ``n`` branches is
     ``(base * (1 + slope * (n0 - n) / n0), 0, 0)``: equal to ``base`` at
@@ -195,7 +195,7 @@ def test_cap_one_recovers_single_pass_behaviour():
 
 
 def test_higher_cap_cuts_more_under_canopy_intensifying_wind():
-    """Under a wind that intensifies as the canopy thins (DendroFlow-like),
+    """Under a wind that intensifies as the canopy thins (bulk-thinning-like),
     the fixed-point loop settles at a smaller canopy than the single-pass
     because the surviving branches feel a higher wind than the original
     pre-pruning estimate. Verify the direction is consistent."""

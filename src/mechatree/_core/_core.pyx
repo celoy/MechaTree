@@ -28,9 +28,11 @@ from mechatree._core.cytree cimport (
     allocation_callback_fn,
     array3d,
     cpp_calculate_stresses,
+    cpp_calculate_stresses_from_stored_forces,
     cpp_light_intercept,
     cpp_primary_growth,
     cpp_prune,
+    cpp_prune_with_stored_forces,
     cpp_requested_growth,
     cpp_secondary_growth,
     cpp_wind_force,
@@ -295,6 +297,16 @@ cdef class PyTree:
         self.c_tree.getBranch(index).setMoment(
             <double>xyz[0], <double>xyz[1], <double>xyz[2])
 
+    def get_segment_force(self, int index):
+        """Per-branch CFD woody-segment force (Step 25c, option B)."""
+        cdef Branch* b = self.c_tree.getBranch(index)
+        return (b.segmentForceAt(0), b.segmentForceAt(1), b.segmentForceAt(2))
+
+    def get_segment_wind(self, int index):
+        """Per-branch local CFD wind (Step 25c, option B)."""
+        cdef Branch* b = self.c_tree.getBranch(index)
+        return (b.segmentWindAt(0), b.segmentWindAt(1), b.segmentWindAt(2))
+
     # ---------- tree-level reserve pool --------------------------------------
 
     def get_reserve(self):
@@ -383,24 +395,116 @@ cdef class PyTree:
         for i in range(n):
             self.c_tree.getBranch(idx_view[i]).setLight(val_view[i])
 
+    def set_forces_batch(self, forces):
+        """Write an ``(N, 3)`` array of per-branch force vectors to the
+        tree's branches in depth-first index order.
+
+        Used by the Step-25b momentum-wind wind bridge to plumb the
+        per-branch ``F_seg`` vectors computed in the CFD solve back
+        into the tree's stress / pruning chain (option B in
+        :doc:`/momentum_wind_derivation`), avoiding the per-branch
+        recomputation of the force kernel that the legacy
+        :func:`calculate_stresses` does.
+
+        ``forces`` must have shape ``(n_branches, 3)``.
+        """
+        import numpy as np
+        arr = np.ascontiguousarray(forces, dtype=np.float64)
+        if arr.ndim != 2 or arr.shape[1] != 3:
+            raise ValueError(
+                f"set_forces_batch: forces must have shape (N, 3); got {arr.shape}"
+            )
+        cdef int n_branches = self.c_tree.getNumberOfBranches()
+        if arr.shape[0] != n_branches:
+            raise ValueError(
+                f"set_forces_batch: forces length must equal n_branches "
+                f"({arr.shape[0]} vs {n_branches})"
+            )
+        cdef double[:, ::1] arr_view = arr
+        cdef int i
+        cdef Branch* b
+        for i in range(n_branches):
+            b = self.c_tree.getBranch(i)
+            b.setForce(arr_view[i, 0], arr_view[i, 1], arr_view[i, 2])
+
+    def set_segment_forces_batch(self, forces):
+        """Write an ``(N, 3)`` array of per-branch woody-segment forces to
+        the tree's branches in depth-first index order (Step 25c, option B).
+
+        Unlike :meth:`set_forces_batch` (which writes the ``force_`` slot
+        that :func:`prune` reuses as its leaves-to-trunk aggregation
+        accumulator), this writes the dedicated ``segment_force_`` field
+        that :func:`prune_with_stored_forces` reads as each branch's own
+        drag contribution. Populated by the momentum-wind bridge with the
+        per-branch ``F_vec`` from the CFD solve.
+
+        ``forces`` must have shape ``(n_branches, 3)``.
+        """
+        import numpy as np
+        arr = np.ascontiguousarray(forces, dtype=np.float64)
+        if arr.ndim != 2 or arr.shape[1] != 3:
+            raise ValueError(
+                f"set_segment_forces_batch: forces must have shape (N, 3); got {arr.shape}"
+            )
+        cdef int n_branches = self.c_tree.getNumberOfBranches()
+        if arr.shape[0] != n_branches:
+            raise ValueError(
+                f"set_segment_forces_batch: forces length must equal n_branches "
+                f"({arr.shape[0]} vs {n_branches})"
+            )
+        cdef double[:, ::1] arr_view = arr
+        cdef int i
+        cdef Branch* b
+        for i in range(n_branches):
+            b = self.c_tree.getBranch(i)
+            b.setSegmentForce(arr_view[i, 0], arr_view[i, 1], arr_view[i, 2])
+
+    def set_segment_winds_batch(self, winds):
+        """Write an ``(N, 3)`` array of per-branch local wind vectors to the
+        tree's branches in depth-first index order (Step 25c, option B).
+
+        Stored in the dedicated ``segment_wind_`` field;
+        :func:`prune_with_stored_forces` uses it for the leaf-cluster drag
+        term on terminal branches (``leaf_drag_S0 * |w| * w``). Populated by
+        the momentum-wind bridge with each branch's local CFD wind
+        (magnitude ``U_branch`` along the storm direction).
+
+        ``winds`` must have shape ``(n_branches, 3)``.
+        """
+        import numpy as np
+        arr = np.ascontiguousarray(winds, dtype=np.float64)
+        if arr.ndim != 2 or arr.shape[1] != 3:
+            raise ValueError(
+                f"set_segment_winds_batch: winds must have shape (N, 3); got {arr.shape}"
+            )
+        cdef int n_branches = self.c_tree.getNumberOfBranches()
+        if arr.shape[0] != n_branches:
+            raise ValueError(
+                f"set_segment_winds_batch: winds length must equal n_branches "
+                f"({arr.shape[0]} vs {n_branches})"
+            )
+        cdef double[:, ::1] arr_view = arr
+        cdef int i
+        cdef Branch* b
+        for i in range(n_branches):
+            b = self.c_tree.getBranch(i)
+            b.setSegmentWind(arr_view[i, 0], arr_view[i, 1], arr_view[i, 2])
+
     def get_branch_data_batch(self):
         """Return ``(start, axis, diameter, length)`` for every branch in
         depth-first order.
 
         ``start`` and ``axis`` are ``(n_branches, 3)`` ``float64`` arrays.
         ``diameter`` and ``length`` are ``(n_branches,)`` ``float64``
-        arrays. Batched replacement for the per-branch
-        ``[get_location, get_unit_t, get_diameter, get_length]`` pattern in
-        :func:`mechatree.wind.dendroflow.pytree_to_cylinders` and
-        :func:`mechatree.wind.dendroflow.forest_to_cylinders`.
+        arrays. Batched accessor for the per-branch geometry the
+        momentum-wind bridge (:class:`mechatree.wind.momentum_wind.MomentumWindBridge`)
+        pools across trees each generation, replacing a per-branch Python
+        loop over ``[get_location, get_unit_t, get_diameter, get_length]``.
 
-        Step 24 prep: the Step-17 DendroFlow bridge calls
-        ``forest_to_cylinders`` once per ``Forest.step``, and Step 24's
-        fixed-point loop calls it once per inner iteration. At 12 k
-        branches the per-branch Python loop was ~6 ms; this Cython
-        version drops it under 0.5 ms, making the inner loop affordable.
-        Mirrors the Phase-A pattern from Step 21b
-        (``get_leaf_tips_batch``).
+        The Step-24 fixed-point loop calls the bridge (and hence this)
+        once per inner iteration; at 12 k branches the Python loop was
+        ~6 ms, this Cython version drops it under 0.5 ms. Mirrors the
+        Phase-A pattern from Step 21b (``get_leaf_tips_batch``).
         """
         import numpy as np
         cdef int n = self.c_tree.getNumberOfBranches()
@@ -501,6 +605,18 @@ cdef class PyTree:
         """Sweep four horizontal wind angles; set `max_stress` per branch."""
         cpp_calculate_stresses(dereference(self.c_tree), leaf_drag_S0, cauchy)
 
+    def calculate_stresses_from_stored_forces(
+            self, double leaf_drag_S0, double cauchy, bint reset_max):
+        """One sensing angle's stress pass from the pre-stored per-branch
+        forces (Step 26c). Reads ``segment_force_`` / ``segment_wind_`` (set
+        by the momentum-wind bridge for this angle), aggregates leaves-to-
+        trunk and sets per-branch ``stress``. ``reset_max=True`` seeds
+        ``max_stress`` (first sensing angle); ``False`` accumulates the
+        per-branch max over angles.
+        """
+        cpp_calculate_stresses_from_stored_forces(
+            dereference(self.c_tree), leaf_drag_S0, cauchy, reset_max)
+
     def requested_growth(self, PySafetyModel safety not None, double maintenance_h):
         """Compute per-branch growth requests. Reads `max_stress` and `nb_leaves`."""
         if safety._model is NULL:
@@ -550,6 +666,23 @@ cdef class PyTree:
         Wa[1] = <double>xyz[1]
         Wa[2] = <double>xyz[2]
         return cpp_prune(dereference(self.c_tree), Wa, leaf_drag_S0, cauchy)
+
+    def prune_with_stored_forces(self, double leaf_drag_S0, double cauchy):
+        """Prune using the per-branch forces pre-stored on each branch.
+
+        Step 25c (option B). Reads each branch's ``segment_force_`` (the
+        woody-segment drag from the momentum-wind CFD) and ``segment_wind_``
+        (its local wind, used for the leaf-cluster drag term) instead of
+        recomputing the drag from a single canopy-mean wind. The caller
+        (the momentum-wind bridge) must have populated those fields for the
+        current branch set via :meth:`set_segment_forces_batch` /
+        :meth:`set_segment_winds_batch` before calling this.
+
+        Returns the number of branches removed (including all descendants of
+        any directly-cut branch).
+        """
+        return cpp_prune_with_stored_forces(
+            dereference(self.c_tree), leaf_drag_S0, cauchy)
 
     # ---------- geometric branch addition ------------------------------------
 

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
-
 import mechatree as mt
 from mechatree.config import Config, ForestConfig, TreeConfig
-from mechatree.wind.bulk_thinning import BulkThinningParams, make_bulk_thinning_wind_fn
+from mechatree.wind.momentum_wind import make_momentum_wind_fn
 from mechatree.wind.replay import StormPreSnapshot, run_storm_replay
 
 
@@ -22,6 +20,12 @@ def _build_warmed_forest(seed: int = 0, n_init: int = 5, gens: int = 25) -> mt.F
     for g in range(gens):
         forest.step(g)
     return forest
+
+
+def _momentum_storm(u: float):
+    """A strong momentum-wind storm at uniform inlet ``u`` (the screening is
+    resolved through the canopy by the kernel)."""
+    return make_momentum_wind_fn(grid_size=2.0, pad_x=10.0, U_uniform=u)
 
 
 def test_pre_snapshot_captures_full_canopy():
@@ -57,20 +61,14 @@ def test_calm_wind_replays_zero_iterations_after_initial():
     assert snaps[1].n_pruned_this_iter == 0
 
 
-def test_storm_replay_with_native_bulk_thinning():
-    """Strong storm via the native bulk-thinning bridge: at least one
-    iteration should cut branches, and per-tree counts should sum to the
-    forest-wide total."""
+def test_storm_replay_with_momentum_wind():
+    """Strong storm via the momentum-wind bridge: at least one iteration
+    should cut branches, and per-tree counts should sum to the forest-wide
+    total."""
     f = _build_warmed_forest(n_init=6, gens=30)
-    storm = make_bulk_thinning_wind_fn()
-    storm.params = BulkThinningParams(
-        U_infty=np.full(100, 5.0),
-        z_centers=np.linspace(0.25, 49.75, 100),
-        H=0.5,
-    )
     pre, snaps = run_storm_replay(
         f,
-        storm,
+        _momentum_storm(5.0),
         leaf_drag_S0=f.config.tree.leaf_surface,
         cauchy=f.config.tree.cauchy,
         max_iterations=4,
@@ -88,15 +86,9 @@ def test_storm_replay_with_native_bulk_thinning():
 def test_storm_replay_cumulative_pruned_monotone():
     """Cumulative cut count must be non-decreasing across snapshots."""
     f = _build_warmed_forest(n_init=4, gens=25)
-    storm = make_bulk_thinning_wind_fn()
-    storm.params = BulkThinningParams(
-        U_infty=np.full(100, 4.0),
-        z_centers=np.linspace(0.25, 49.75, 100),
-        H=0.5,
-    )
     pre, snaps = run_storm_replay(
         f,
-        storm,
+        _momentum_storm(4.0),
         leaf_drag_S0=f.config.tree.leaf_surface,
         cauchy=f.config.tree.cauchy,
         max_iterations=4,
@@ -109,15 +101,9 @@ def test_storm_replay_cumulative_pruned_monotone():
 def test_plot_storm_replay_builds_figure():
     """End-to-end: the viz helper builds a multi-panel plotly figure."""
     f = _build_warmed_forest(n_init=3, gens=20)
-    storm = make_bulk_thinning_wind_fn()
-    storm.params = BulkThinningParams(
-        U_infty=np.full(100, 4.0),
-        z_centers=np.linspace(0.25, 49.75, 100),
-        H=0.5,
-    )
     pre, snaps = run_storm_replay(
         f,
-        storm,
+        _momentum_storm(4.0),
         leaf_drag_S0=f.config.tree.leaf_surface,
         cauchy=f.config.tree.cauchy,
         max_iterations=3,

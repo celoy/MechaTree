@@ -22,12 +22,17 @@ def _trunk(length=1.0, diameter=0.1, unit_t=(0.0, 0.0, 1.0), unit_b=(1.0, 0.0, 0
 
 
 def test_wind_force_perpendicular_unit_branch():
-    """Wind (1,0,0) on a trunk pointing up: force = (V²·d·L, 0, 0)."""
+    """Wind (1,0,0) on a trunk pointing up: force = (½·V²·d·L, 0, 0).
+
+    The ½ is the ½ρU² dynamic-pressure factor restored to ``wind_force``
+    (the Fortran omitted it and folded it into Cauchy); with d=0.1, L=1,
+    V=1 that gives 0.05.
+    """
     t = _trunk()
     force, moment = wind_force(t, 0, (1.0, 0.0, 0.0))
-    assert force == pytest.approx((0.1, 0.0, 0.0))
-    # moment = (0,0,L/2) × force = (0, L·V²·d/2, 0)
-    assert moment == pytest.approx((0.0, 0.05, 0.0))
+    assert force == pytest.approx((0.05, 0.0, 0.0))
+    # moment = (0,0,L/2) × force = (0, L·½·V²·d/2, 0)
+    assert moment == pytest.approx((0.0, 0.025, 0.0))
 
 
 def test_wind_force_wind_magnitude_squared():
