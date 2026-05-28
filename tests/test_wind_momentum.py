@@ -14,7 +14,11 @@ import mechatree as mt
 from mechatree.config import Config, ForestConfig, TreeConfig, WindConfig
 from mechatree.mechanics import calculate_stresses, calculate_stresses_from_stored_forces
 from mechatree.simulate import _resolve_wind_fn
-from mechatree.wind._momentum_wind_kernel import compute_momentum_wind
+from mechatree.wind._momentum_wind_kernel import (
+    compute_momentum_wind,
+    compute_momentum_wind_native,
+    compute_momentum_wind_world,
+)
 from mechatree.wind.momentum_wind import MomentumWindBridge
 
 
@@ -213,6 +217,272 @@ def test_kernel_returns_per_branch_arrays():
     assert F_vec_mag == pytest.approx(result.F_N_branch[0], rel=1e-9)
     # Streamwise component = F_D.
     assert result.F_vec_branch[0, 0] == pytest.approx(result.F_D_branch[0], rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Step 26e: GIL-free C++ kernel ≡ NumPy reference (the equivalence gate)
+# ---------------------------------------------------------------------------
+
+
+def _random_canopy(rng, n, *, x_hi=20.0, y_hi=20.0, z_hi=15.0):
+    start = np.empty((n, 3))
+    start[:, 0] = rng.uniform(0.0, x_hi, n)
+    start[:, 1] = rng.uniform(0.0, y_hi, n)
+    start[:, 2] = rng.uniform(0.0, z_hi, n)
+    axis = rng.normal(size=(n, 3))
+    axis /= np.linalg.norm(axis, axis=1, keepdims=True)
+    D = rng.uniform(0.05, 0.4, n)
+    L = rng.uniform(0.2, 0.9, n)  # <= grid_size for exact centroid binning
+    return start, axis, D, L
+
+
+def _grid(x_hi, y_hi, z_hi, grid_size, pad=4.0):
+    cbx = np.arange(-pad, x_hi + pad + grid_size, grid_size)
+    cby = np.arange(-pad, y_hi + pad + grid_size, grid_size)
+    cbz = np.arange(0.0, z_hi + pad + grid_size, grid_size)
+    return cbx, cby, cbz
+
+
+@pytest.mark.parametrize("grid_size", [1.0, 2.0, 3.0])
+@pytest.mark.parametrize("diffusion_per_line", [True, False])
+@pytest.mark.parametrize("nu_diff", [0.0, 0.03, 0.3])
+def test_native_kernel_matches_numpy(grid_size, diffusion_per_line, nu_diff):
+    """The C++ ``momentum_solve`` must reproduce the NumPy reference to
+    atol 1e-10 across grids / diffusion modes / nu_diff (Step 26e gate)."""
+    rng = np.random.default_rng(7)
+    start, axis, D, L = _random_canopy(rng, 300)
+    cbx, cby, cbz = _grid(20.0, 20.0, 15.0, grid_size)
+    zc = 0.5 * (cbz[:-1] + cbz[1:])
+    U_infty = (0.4 / 0.41) * np.log(np.maximum(zc, 0.1) / 0.1)
+
+    kw = dict(
+        cell_bounds_x=cbx,
+        cell_bounds_y=cby,
+        cell_bounds_z=cbz,
+        grid_size=grid_size,
+        U_infty=U_infty,
+        nu_diff=nu_diff,
+        diffusion_per_line=diffusion_per_line,
+    )
+    ref = compute_momentum_wind(start, axis, D, L, **kw)
+    nat = compute_momentum_wind_native(start, axis, D, L, **kw)
+
+    np.testing.assert_allclose(nat.U_out, ref.U_out, atol=1e-10)
+    np.testing.assert_allclose(nat.U_in_grid, ref.U_in_grid, atol=1e-10)
+    np.testing.assert_allclose(nat.F_D_cell, ref.F_D_cell, atol=1e-10)
+    np.testing.assert_allclose(nat.U_branch, ref.U_branch, atol=1e-10)
+    np.testing.assert_allclose(nat.F_N_branch, ref.F_N_branch, atol=1e-10)
+    np.testing.assert_allclose(nat.F_D_branch, ref.F_D_branch, atol=1e-10)
+    np.testing.assert_allclose(nat.F_vec_branch, ref.F_vec_branch, atol=1e-10)
+
+
+def test_native_kernel_uniform_inflow_matches_numpy():
+    """Uniform inflow (the sensing / U_uniform path) also matches."""
+    rng = np.random.default_rng(11)
+    start, axis, D, L = _random_canopy(rng, 150)
+    cbx, cby, cbz = _grid(20.0, 20.0, 15.0, 2.0)
+    U_infty = np.full(cbz.size - 1, 1.0)
+    kw = dict(
+        cell_bounds_x=cbx,
+        cell_bounds_y=cby,
+        cell_bounds_z=cbz,
+        grid_size=2.0,
+        U_infty=U_infty,
+    )
+    ref = compute_momentum_wind(start, axis, D, L, **kw)
+    nat = compute_momentum_wind_native(start, axis, D, L, **kw)
+    np.testing.assert_allclose(nat.U_out, ref.U_out, atol=1e-10)
+    np.testing.assert_allclose(nat.F_vec_branch, ref.F_vec_branch, atol=1e-10)
+    np.testing.assert_allclose(nat.U_branch, ref.U_branch, atol=1e-10)
+
+
+def test_native_kernel_empty_canopy():
+    """Zero branches → free-stream U_out, empty per-branch arrays, no crash."""
+    cbx, cby, cbz = _grid(4.0, 4.0, 4.0, 2.0)
+    U_infty = np.full(cbz.size - 1, 1.0)
+    empty = np.empty((0, 3))
+    nat = compute_momentum_wind_native(
+        empty,
+        empty,
+        np.empty(0),
+        np.empty(0),
+        cell_bounds_x=cbx,
+        cell_bounds_y=cby,
+        cell_bounds_z=cbz,
+        grid_size=2.0,
+        U_infty=U_infty,
+    )
+    assert nat.U_branch.shape == (0,)
+    assert nat.F_vec_branch.shape == (0, 3)
+    # Every cell sees free stream when there's no canopy.
+    for k in range(cbz.size - 1):
+        assert np.allclose(nat.U_out[k], U_infty[k], atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Step 26f: consolidated world entry + kernel canopy-mean / F-rotation gates
+# ---------------------------------------------------------------------------
+
+
+def _python_world_pipeline(start, axis, D, L, *, theta, grid_size, pad, U_uniform):
+    """Reference: the Python rotation + grid + NumPy `compute_momentum_wind` +
+    Python force-rotation pipeline that `compute_momentum_wind_world` replaces.
+    Built on the NumPy oracle so it's independent of the C++ world entry."""
+    cx, cy = math.cos(theta), math.sin(theta)
+    ct, st = math.cos(-theta), math.sin(-theta)
+    rs = np.column_stack(
+        [ct * start[:, 0] - st * start[:, 1], st * start[:, 0] + ct * start[:, 1], start[:, 2]]
+    )
+    ra = np.column_stack(
+        [ct * axis[:, 0] - st * axis[:, 1], st * axis[:, 0] + ct * axis[:, 1], axis[:, 2]]
+    )
+    x_lo, x_hi = rs[:, 0].min() - pad, rs[:, 0].max() + pad
+    y_lo, y_hi = rs[:, 1].min() - pad, rs[:, 1].max() + pad
+    z_hi = (rs[:, 2] + L * ra[:, 2]).max() + pad
+    cbx = np.arange(x_lo, x_hi + grid_size, grid_size)
+    cby = np.arange(y_lo, y_hi + grid_size, grid_size)
+    cbz = np.arange(0.0, z_hi + grid_size, grid_size)
+    U_infty = np.full(cbz.size - 1, U_uniform)
+    res = compute_momentum_wind(
+        rs,
+        ra,
+        D,
+        L,
+        cell_bounds_x=cbx,
+        cell_bounds_y=cby,
+        cell_bounds_z=cbz,
+        grid_size=grid_size,
+        U_infty=U_infty,
+    )
+    fx, fy = res.F_vec_branch[:, 0], res.F_vec_branch[:, 1]
+    f_world = np.column_stack([cx * fx - cy * fy, cy * fx + cx * fy, res.F_vec_branch[:, 2]])
+    w_world = res.U_branch[:, None] * np.array([cx, cy, 0.0])
+    return f_world, w_world
+
+
+@pytest.mark.parametrize("theta", [0.0, math.pi / 4, math.pi / 2, 1.3, 5.0])
+@pytest.mark.parametrize("grid_size", [1.0, 2.0])
+def test_solve_world_matches_python_pipeline(theta, grid_size):
+    """The consolidated C++ `momentum_solve_world` (rotation + np.arange grid +
+    inflow + march + world-frame force, all in C++) ≡ the Python
+    rotation+grid+NumPy-solve+rotate pipeline to atol 1e-10. Gate for the
+    `np.arange`-replica + in-C++ rotation (Step 26f)."""
+    rng = np.random.default_rng(13)
+    start, axis, D, L = _random_canopy(rng, 250)
+    pad = 6.0
+    f_world, w_world = compute_momentum_wind_world(
+        start,
+        axis,
+        D,
+        L,
+        theta=theta,
+        grid_size=grid_size,
+        pad_x=pad,
+        pad_y=pad,
+        pad_z=pad,
+        U_uniform=1.0,
+    )
+    f_ref, w_ref = _python_world_pipeline(
+        start, axis, D, L, theta=theta, grid_size=grid_size, pad=pad, U_uniform=1.0
+    )
+    np.testing.assert_allclose(f_world, f_ref, atol=1e-10)
+    np.testing.assert_allclose(w_world, w_ref, atol=1e-10)
+
+
+def test_solve_world_log_law_matches_python_pipeline():
+    """Same gate with the log-law inflow path (U_uniform unset)."""
+    rng = np.random.default_rng(21)
+    start, axis, D, L = _random_canopy(rng, 200)
+    pad, gs, theta = 6.0, 2.0, 0.9
+    f_world, w_world = compute_momentum_wind_world(
+        start,
+        axis,
+        D,
+        L,
+        theta=theta,
+        grid_size=gs,
+        pad_x=pad,
+        pad_y=pad,
+        pad_z=pad,
+        ua=0.4,
+        z0=0.1,
+        kappa=0.41,
+    )
+    # Reference with the log-law inflow.
+    cx, cy = math.cos(theta), math.sin(theta)
+    ct, st = math.cos(-theta), math.sin(-theta)
+    rs = np.column_stack(
+        [ct * start[:, 0] - st * start[:, 1], st * start[:, 0] + ct * start[:, 1], start[:, 2]]
+    )
+    ra = np.column_stack(
+        [ct * axis[:, 0] - st * axis[:, 1], st * axis[:, 0] + ct * axis[:, 1], axis[:, 2]]
+    )
+    cbx = np.arange(rs[:, 0].min() - pad, rs[:, 0].max() + pad + gs, gs)
+    cby = np.arange(rs[:, 1].min() - pad, rs[:, 1].max() + pad + gs, gs)
+    cbz = np.arange(0.0, (rs[:, 2] + L * ra[:, 2]).max() + pad + gs, gs)
+    zc = 0.5 * (cbz[:-1] + cbz[1:])
+    U_infty = (0.4 / 0.41) * np.log(np.maximum(zc, 0.1) / 0.1)
+    res = compute_momentum_wind(
+        rs,
+        ra,
+        D,
+        L,
+        cell_bounds_x=cbx,
+        cell_bounds_y=cby,
+        cell_bounds_z=cbz,
+        grid_size=gs,
+        U_infty=U_infty,
+    )
+    fx, fy = res.F_vec_branch[:, 0], res.F_vec_branch[:, 1]
+    f_ref = np.column_stack([cx * fx - cy * fy, cy * fx + cx * fy, res.F_vec_branch[:, 2]])
+    np.testing.assert_allclose(f_world, f_ref, atol=1e-10)
+
+
+def test_kernel_canopy_mean_and_force_rotation():
+    """`momentum_solve`'s kernel-side canopy-mean ≡ Python `mean(U_out[cells])`,
+    and the cos/sin-theta F_vec rotation ≡ a Python column_stack rotation."""
+    rng = np.random.default_rng(5)
+    start, axis, D, L = _random_canopy(rng, 200)
+    cbx, cby, cbz = _grid(20.0, 20.0, 15.0, 2.0)
+    U_infty = np.full(cbz.size - 1, 1.0)
+    theta = 0.7
+    cx, cy = math.cos(theta), math.sin(theta)
+    kw = dict(
+        cell_bounds_x=cbx, cell_bounds_y=cby, cell_bounds_z=cbz, grid_size=2.0, U_infty=U_infty
+    )
+    # Storm-frame (identity) result + the kernel canopy mean.
+    base = compute_momentum_wind_native(start, axis, D, L, **kw, compute_canopy_mean=True)
+    # Python canopy mean over branch cells.
+    mid = start + 0.5 * L[:, None] * axis
+    Nx, Ny, Nz = cbx.size - 1, cby.size - 1, cbz.size - 1
+    i = np.clip(np.searchsorted(cbx, mid[:, 0], side="right") - 1, 0, Nx - 1)
+    j = np.clip(np.searchsorted(cby, mid[:, 1], side="right") - 1, 0, Ny - 1)
+    k = np.clip(np.searchsorted(cbz, mid[:, 2], side="right") - 1, 0, Nz - 1)
+    py_mean = float(np.mean(base.U_out[k, j, i]))
+    assert base.canopy_mean == pytest.approx(py_mean, abs=1e-12)
+
+    # F_vec with cos/sin theta == Python rotation of the storm-frame F_vec.
+    rot = compute_momentum_wind_native(start, axis, D, L, **kw, cos_theta=cx, sin_theta=cy)
+    fx, fy = base.F_vec_branch[:, 0], base.F_vec_branch[:, 1]
+    expect = np.column_stack([cx * fx - cy * fy, cy * fx + cx * fy, base.F_vec_branch[:, 2]])
+    np.testing.assert_allclose(rot.F_vec_branch, expect, atol=1e-12)
+
+
+def test_solve_world_empty_canopy():
+    f_world, w_world = compute_momentum_wind_world(
+        np.empty((0, 3)),
+        np.empty((0, 3)),
+        np.empty(0),
+        np.empty(0),
+        theta=0.5,
+        grid_size=2.0,
+        pad_x=4.0,
+        pad_y=4.0,
+        pad_z=4.0,
+        U_uniform=1.0,
+    )
+    assert f_world.shape == (0, 3)
+    assert w_world.shape == (0, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -688,3 +958,81 @@ def test_forest_momentum_sensing_end_to_end():
         forest.step(g)
     assert len(forest.trees) >= 1
     assert sum(t.get_number_of_branches() for t in forest.trees) > 0
+
+
+# ---------------------------------------------------------------------------
+# Step 26e: parallel sensing sweep (solve_directions)
+# ---------------------------------------------------------------------------
+
+
+def test_solve_directions_matches_single_sense():
+    """Each angle's pooled force/wind from the parallel ``solve_directions``
+    equals what the single-angle ``sense`` writes onto the trees."""
+    _cfg, forest = _tiny_warmup_forest(seed=8)
+    angles = [0.3, 2.0, 4.5]
+    bridge = MomentumWindBridge(grid_size=2.0, pad_x=6.0, U_uniform=1.0)
+    _trees, _counts, per_angle = bridge.solve_directions(forest, angles)
+    for (f_world, w_world), theta in zip(per_angle, angles, strict=True):
+        bridge.sense(forest, theta)
+        stored_f = np.concatenate([_segment_forces(t) for t in forest.trees])
+        stored_w = np.concatenate([_segment_winds(t) for t in forest.trees])
+        np.testing.assert_allclose(f_world, stored_f, atol=1e-12)
+        np.testing.assert_allclose(w_world, stored_w, atol=1e-12)
+
+
+def test_solve_directions_thread_count_independent():
+    """Parallel solves are deterministic: serial (1 thread) and multi-thread
+    runs produce bit-identical per-angle forces (each solve is independent)."""
+    _cfg, forest = _tiny_warmup_forest(seed=8)
+    angles = [0.1, 1.2, 2.5, 4.0]
+    serial = MomentumWindBridge(grid_size=2.0, pad_x=6.0, U_uniform=1.0, sensing_threads=1)
+    parallel = MomentumWindBridge(grid_size=2.0, pad_x=6.0, U_uniform=1.0, sensing_threads=4)
+    _t, _c, a = serial.solve_directions(forest, angles)
+    _t, _c, b = parallel.solve_directions(forest, angles)
+    for (fa, wa), (fb, wb) in zip(a, b, strict=True):
+        np.testing.assert_array_equal(fa, fb)
+        np.testing.assert_array_equal(wa, wb)
+
+
+def test_momentum_sensing_threads_does_not_change_trees():
+    """End-to-end: the thread count is a pure perf knob — a momentum forest run
+    with serial vs parallel sensing produces identical trees."""
+
+    def run(threads):
+        cfg = Config(
+            tree=TreeConfig(),
+            forest=ForestConfig(size=10.0, n_trees_init=4, n_trees_max=12),
+            wind=WindConfig(
+                model="momentum",
+                grid_size=2.0,
+                momentum_pad_x=6.0,
+                momentum_U_uniform=1.5,
+                n_sensing_angles=3,
+                momentum_sensing_threads=threads,
+            ),
+            n_generations=15,
+        )
+        forest = mt.Forest(cfg, seed=3)
+        for g in range(15):
+            forest.step(g)
+        return [t.get_number_of_branches() for t in forest.trees]
+
+    assert run(1) == run(4)
+
+
+def test_solve_directions_empty_forest():
+    class _Empty:
+        trees: list = []
+
+    bridge = MomentumWindBridge(grid_size=2.0)
+    trees, counts, per_angle = bridge.solve_directions(_Empty(), [0.0, 1.0])
+    assert trees == []
+    assert counts == []
+    assert per_angle == []
+
+
+def test_windconfig_momentum_sensing_threads_validation():
+    assert WindConfig(model="momentum").momentum_sensing_threads is None
+    assert WindConfig(model="momentum", momentum_sensing_threads=4).momentum_sensing_threads == 4
+    with pytest.raises(ValueError, match="momentum_sensing_threads"):
+        WindConfig(model="momentum", momentum_sensing_threads=0)

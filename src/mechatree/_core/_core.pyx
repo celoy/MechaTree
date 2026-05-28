@@ -30,6 +30,8 @@ from mechatree._core.cytree cimport (
     cpp_calculate_stresses,
     cpp_calculate_stresses_from_stored_forces,
     cpp_light_intercept,
+    cpp_momentum_solve,
+    cpp_momentum_solve_world,
     cpp_primary_growth,
     cpp_prune,
     cpp_prune_with_stored_forces,
@@ -1031,3 +1033,178 @@ def light_intercept_kernel(
         leaf_transparency,
         &light_per_direction[0, 0],
     )
+
+
+# ---- momentum-wind kernel (Step 26e) ---------------------------------------
+
+
+def momentum_solve_kernel(
+    double[:, ::1] start not None,
+    double[:, ::1] axis not None,
+    double[::1] D not None,
+    double[::1] L not None,
+    double[::1] cell_bounds_x not None,
+    double[::1] cell_bounds_y not None,
+    double[::1] cell_bounds_z not None,
+    double grid_size,
+    double[::1] U_infty not None,
+    double C_D,
+    double nu_diff,
+    bint diffusion_per_line,
+    double[::1] U_out not None,
+    double[::1] U_in_grid not None,
+    double[::1] F_D_cell_grid not None,
+    double[::1] U_branch not None,
+    double[::1] F_N_branch not None,
+    double[::1] F_D_branch not None,
+    double[:, ::1] F_vec_branch not None,
+    double cos_theta=1.0,
+    double sin_theta=0.0,
+    double[::1] canopy_mean_out=None,
+):
+    """GIL-free C++ body of one momentum-wind solve (Step 26e).
+
+    Numerically equivalent to
+    :func:`mechatree.wind._momentum_wind_kernel.compute_momentum_wind` (the
+    readable NumPy reference) to atol 1e-10. The C++ kernel is declared
+    ``nogil`` so the independent ``n_sensing_angles`` solves can run on a
+    thread pool without GIL contention.
+
+    All array views must be C-contiguous float64. ``start`` / ``axis`` are
+    ``(n, 3)``; ``D`` / ``L`` are ``(n,)``; the three ``cell_bounds_*`` are the
+    grid boundaries; ``U_infty`` is ``(Nz,)``. The grid outputs ``U_out`` /
+    ``U_in_grid`` / ``F_D_cell_grid`` are flat ``(Nz*Ny*Nx,)`` buffers (row-major
+    ``(Nz, Ny, Nx)``), written in place; the per-branch outputs are ``(n,)`` /
+    ``F_vec_branch`` is ``(n, 3)``.
+    """
+    cdef Py_ssize_t n = start.shape[0]
+    cdef Py_ssize_t nbx = cell_bounds_x.shape[0]
+    cdef Py_ssize_t nby = cell_bounds_y.shape[0]
+    cdef Py_ssize_t nbz = cell_bounds_z.shape[0]
+    if start.shape[1] != 3 or axis.shape[1] != 3:
+        raise ValueError("start/axis must have shape (n, 3)")
+    if axis.shape[0] != n or D.shape[0] != n or L.shape[0] != n:
+        raise ValueError("start/axis/D/L must share the same length n")
+    if F_vec_branch.shape[0] != n or F_vec_branch.shape[1] != 3:
+        raise ValueError("F_vec_branch must have shape (n, 3)")
+    if canopy_mean_out is not None and canopy_mean_out.shape[0] < 1:
+        raise ValueError("canopy_mean_out must have length >= 1 when provided")
+    # Per-branch pointers are only dereferenced inside the kernel's per-branch
+    # loops (skipped when n == 0), so pass NULL for an empty canopy rather than
+    # indexing a zero-length view. The grid is still solved → free-stream U_out.
+    cdef double* start_ptr = NULL
+    cdef double* axis_ptr = NULL
+    cdef double* D_ptr = NULL
+    cdef double* L_ptr = NULL
+    cdef double* U_branch_ptr = NULL
+    cdef double* F_N_ptr = NULL
+    cdef double* F_D_ptr = NULL
+    cdef double* F_vec_ptr = NULL
+    cdef double* canopy_ptr = NULL
+    if n > 0:
+        start_ptr = &start[0, 0]
+        axis_ptr = &axis[0, 0]
+        D_ptr = &D[0]
+        L_ptr = &L[0]
+        U_branch_ptr = &U_branch[0]
+        F_N_ptr = &F_N_branch[0]
+        F_D_ptr = &F_D_branch[0]
+        F_vec_ptr = &F_vec_branch[0, 0]
+    if canopy_mean_out is not None:
+        canopy_ptr = &canopy_mean_out[0]
+    with nogil:
+        cpp_momentum_solve(
+            start_ptr,
+            axis_ptr,
+            D_ptr,
+            L_ptr,
+            <size_t>n,
+            &cell_bounds_x[0],
+            <size_t>nbx,
+            &cell_bounds_y[0],
+            <size_t>nby,
+            &cell_bounds_z[0],
+            <size_t>nbz,
+            grid_size,
+            &U_infty[0],
+            C_D,
+            nu_diff,
+            <int>diffusion_per_line,
+            &U_out[0],
+            &U_in_grid[0],
+            &F_D_cell_grid[0],
+            U_branch_ptr,
+            F_N_ptr,
+            F_D_ptr,
+            F_vec_ptr,
+            cos_theta,
+            sin_theta,
+            canopy_ptr,
+        )
+
+
+def momentum_solve_world_kernel(
+    double[:, ::1] start not None,
+    double[:, ::1] axis not None,
+    double[::1] D not None,
+    double[::1] L not None,
+    double theta,
+    double grid_size,
+    double pad_x,
+    double pad_y,
+    double pad_z,
+    double U_uniform,
+    double ua,
+    double z0,
+    double kappa,
+    double amp,
+    double C_D,
+    double nu_diff,
+    bint diffusion_per_line,
+    double[:, ::1] F_world not None,
+    double[:, ::1] w_world not None,
+):
+    """GIL-free consolidated sensing solve (Step 26f).
+
+    Rotation, grid build, inflow, the column march, and the world-frame force
+    rotation all happen in C++, so the bridge just pools the *unrotated*
+    geometry and passes the storm angle ``theta``. ``U_uniform`` >= 0 selects a
+    uniform inlet; a negative value selects the log-law (``ua`` / ``z0`` /
+    ``kappa``). Outputs ``F_world`` / ``w_world`` are ``(n, 3)`` written in place.
+    """
+    cdef Py_ssize_t n = start.shape[0]
+    if start.shape[1] != 3 or axis.shape[1] != 3:
+        raise ValueError("start/axis must have shape (n, 3)")
+    if axis.shape[0] != n or D.shape[0] != n or L.shape[0] != n:
+        raise ValueError("start/axis/D/L must share the same length n")
+    if F_world.shape[0] != n or F_world.shape[1] != 3:
+        raise ValueError("F_world must have shape (n, 3)")
+    if w_world.shape[0] != n or w_world.shape[1] != 3:
+        raise ValueError("w_world must have shape (n, 3)")
+    if n == 0:
+        return
+    cdef double* start_ptr = &start[0, 0]
+    cdef double* axis_ptr = &axis[0, 0]
+    with nogil:
+        cpp_momentum_solve_world(
+            start_ptr,
+            axis_ptr,
+            &D[0],
+            &L[0],
+            <size_t>n,
+            theta,
+            grid_size,
+            pad_x,
+            pad_y,
+            pad_z,
+            U_uniform,
+            ua,
+            z0,
+            kappa,
+            amp,
+            C_D,
+            nu_diff,
+            <int>diffusion_per_line,
+            &F_world[0, 0],
+            &w_world[0, 0],
+        )

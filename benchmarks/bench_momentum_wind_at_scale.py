@@ -123,6 +123,18 @@ class _WindTracker:
         self.sense_calls += 1
         return out
 
+    def solve_directions(self, context: Any, thetas: Any) -> Any:
+        # Step 26e: sensing now fans the n_sensing_angles solves out here (the
+        # GIL-free kernel lets a thread pool overlap them). Time the whole
+        # parallel sweep; count one "sense call" per angle so the per-solve
+        # average stays comparable to the old per-angle ``sense`` timing.
+        thetas = list(thetas)
+        t0 = time.perf_counter()
+        out = self._b.solve_directions(context, thetas)
+        self.sense_time += time.perf_counter() - t0
+        self.sense_calls += len(thetas)
+        return out
+
     def sensing_angles(self, rng: Any, n: int) -> Any:
         return self._b.sensing_angles(rng, n)
 

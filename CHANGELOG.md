@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Step 26f: consolidated the momentum per-solve glue into the C++ kernel (2026-05-28)
+
+- 26e profiling showed the C++ kernel was only ~29 % of a real momentum solve (5.5 ms at 53 k branches); the rest was Python glue. Pushed rotation, grid build, inflow, canopy-mean, and the F_vec world-frame rotation into the kernel. `momentum_solve` ([`momentum.cpp`](src/mechatree/_core/momentum.cpp)) gained additive `cos_theta`/`sin_theta` + nullable `U_in_grid`/`F_D_cell_grid`/`canopy_mean_out` args (defaults reproduce 26e byte-for-byte). New `momentum_solve_world` consolidated entry (pooled *unrotated* geometry + `theta` → world-frame `F`/`w`, builds the grid internally) drives the sensing sweep; `MomentumWindResult` gained a `canopy_mean` field, and `compute_momentum_wind_world` is the new Python wrapper.
+- **Per-solve: sensing 5.5 → 1.94 ms (2.8×), pruning 5.5 → 2.94 ms (1.9×)** at 53 k branches. Sensing-sweep thread scaling is now real (1.4× @2 threads, 1.85× @4) — sublinear because the column march is memory-bandwidth-bound, not GIL-bound.
+- **`WindConfig.n_sensing_angles` default raised 2 → 4**: with auto-threads the extra angles fan out to more threads, so `n=4` costs ~the same wall-clock as `2` on a multicore box (4.67 vs 4.49 ms/gen at 53 k branches) — the finer directional-sensing envelope is nearly free. Costs ~2× on a thread-limited machine (drop to 2/1 for single-core). Slightly changes default momentum-model tree morphology.
+- Equivalence-gated: the 26e native-vs-NumPy oracle test is unchanged (additive defaults are byte-neutral); a new `test_solve_world_matches_python_pipeline` pins `momentum_solve_world` ≡ the old Python rotation+grid+solve+rotate pipeline (incl. the `np.arange` grid replica) to atol 1e-10. 427 tests green.
+
+### Added — Step 26e: GIL-free C++ momentum kernel + parallel sensing sweep (2026-05-28)
+
+- Ported the pure-NumPy momentum column march to a `nogil` C++ kernel ([`momentum.{h,cpp}`](src/mechatree/_core/momentum.cpp)) with a Cython binding `momentum_solve_kernel` and a `compute_momentum_wind_native` Python wrapper ([`_momentum_wind_kernel.py`](src/mechatree/wind/_momentum_wind_kernel.py)) that returns the same `MomentumWindResult`. The NumPy `compute_momentum_wind` stays as the readable reference + equivalence oracle. The bridge solves through native; **5.8× faster** per isolated solve.
+- Parallelised the independent `n_sensing_angles` sensing solves via a stdlib `ThreadPoolExecutor` over the GIL-free kernel (no OpenMP dependency): new [`MomentumWindBridge.solve_directions`](src/mechatree/wind/momentum_wind.py) returns per-angle world-frame forces without mutating the trees, and [`_sense_canopy`](src/mechatree/simulate.py) writes them + runs the stress pass sequentially so results are **thread-count-independent**. New `WindConfig.momentum_sensing_threads` (None → auto; 1 → serial). Sensing sweep at 54 k branches: numpy 43.6 ms → native serial 21.8 ms → native + 4 threads 10.8 ms (**4.0× over numpy**); the Step-26d thread-pool result (0.67× on the GIL-bound NumPy march) is flipped.
+- Equivalence gate: native ≡ NumPy to `atol=1e-10` (actual drift ~1e-15) across grid sizes / diffusion modes / `nu_diff`, plus uniform-inflow + empty-canopy cases ([`tests/test_wind_momentum.py`](tests/test_wind_momentum.py)). 414 tests green. `benchmarks/bench_momentum_wind_at_scale.py`'s `_WindTracker` updated to time `solve_directions`.
+
 ### Changed — Step 26d follow-ups: `n_sensing_angles` default 2, notebook + bench refresh (2026-05-27)
 
 - Default `WindConfig.n_sensing_angles` is now **2** (was 4): each screened sensing solve is ~11–12 ms/gen, so 2 ≈ halves the sensing cost; the angles stay random per-generation draws from `angle_cdf`, so the directional load still integrates over the run.

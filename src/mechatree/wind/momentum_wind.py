@@ -16,14 +16,17 @@ L)`` arrays which come straight from :meth:`PyTree.get_branch_data_batch`.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from mechatree.wind._momentum_wind_kernel import (
     MomentumWindResult,
-    compute_momentum_wind,
+    compute_momentum_wind_native,
+    compute_momentum_wind_world,
 )
 
 if TYPE_CHECKING:
@@ -71,6 +74,7 @@ class MomentumWindBridge:
         U_uniform: float | None = None,
         C_D: float = 1.0,
         diffusion_per_line: bool = True,
+        sensing_threads: int | None = None,
         angle_sampler: Callable[[np.random.Generator, int], np.ndarray] | None = None,
         amplitude_sampler: Callable[[np.random.Generator, int], np.ndarray] | None = None,
     ) -> None:
@@ -85,6 +89,11 @@ class MomentumWindBridge:
         self.U_uniform = None if U_uniform is None else float(U_uniform)
         self.C_D = float(C_D)
         self.diffusion_per_line = bool(diffusion_per_line)
+        # Step 26e: the n_sensing_angles solves are independent and the C++
+        # kernel releases the GIL, so they fan out over a thread pool. None →
+        # auto (min(n_angles, cpu_count)); 1 forces serial (for measurement /
+        # reproducibility debugging — results are thread-count-independent).
+        self.sensing_threads = None if sensing_threads is None else int(sensing_threads)
         # Step 26a: per-branch forces are now the *only* momentum behaviour.
         # The bridge always writes each branch's CFD force + local wind back
         # onto the trees so the prune loop reads them via
@@ -132,10 +141,8 @@ class MomentumWindBridge:
             counts,
         )
 
-    def _solve_and_store(
+    def _solve_world_forces(
         self,
-        trees: list,
-        counts: list,
         start: np.ndarray,
         axis: np.ndarray,
         D: np.ndarray,
@@ -144,14 +151,18 @@ class MomentumWindBridge:
         theta: float,
         U_uniform: float | None,
         amp: float,
-    ) -> float:
-        """Solve the momentum field for one direction ``theta`` and write the
-        per-branch screened force + local wind back onto each tree. Shared by
-        the pruning call (storm direction + configured inflow) and the Step-26c
-        sensing sweep (explicit angle + uniform inlet). Returns the canopy-mean
-        wind magnitude (the ε convergence thermometer)."""
+    ):
+        """Solve the momentum field for one direction ``theta`` and return
+        ``(F_world, w_world, u_mag, wind_dir, result)`` — the per-branch force +
+        local wind already rotated into the world frame, the canopy-mean wind
+        magnitude (ε convergence thermometer), the storm direction, and the raw
+        :class:`MomentumWindResult`.
+
+        Pure with respect to ``self`` and the trees (reads only immutable
+        config, allocates everything locally), so the independent sensing-sweep
+        solves can run concurrently on a thread pool — the C++ kernel releases
+        the GIL during the column march (Step 26e)."""
         cx, cy = math.cos(theta), math.sin(theta)
-        self.last_wind_direction = (cx, cy)
 
         # Rotate horizontal position + axis into the wind frame (storm → +x).
         if theta != 0.0:
@@ -183,7 +194,12 @@ class MomentumWindBridge:
         if amp != 1.0:
             U_infty = U_infty * amp
 
-        result = compute_momentum_wind(
+        # Step 26f: the kernel rotates the per-branch F_vec to the world frame
+        # (cos/sin θ) and returns the canopy-mean directly, so the Python
+        # column_stack + searchsorted are gone. Grid build stays in Python here
+        # because this path still produces the full grid outputs for
+        # ``last_result`` (notebook + tests read U_out / U_in_grid).
+        result = compute_momentum_wind_native(
             start,
             axis,
             D,
@@ -197,15 +213,21 @@ class MomentumWindBridge:
             nu_diff=self.nu_diff,
             diffusion_per_line=self.diffusion_per_line,
             wind_direction=(cx, cy),
+            cos_theta=cx,
+            sin_theta=cy,
+            compute_canopy_mean=True,
         )
-        self.last_result = result
 
-        # Plumb the per-branch force + local wind back onto each tree (rotate
-        # F_vec from the +x solve frame to the world frame by +θ; the local
-        # wind is along the storm direction at per-branch magnitude U_branch).
-        Fx, Fy = result.F_vec_branch[:, 0], result.F_vec_branch[:, 1]
-        F_world = np.column_stack([cx * Fx - cy * Fy, cy * Fx + cx * Fy, result.F_vec_branch[:, 2]])
+        # F_vec is already world-frame; local wind is along the storm direction.
+        F_world = result.F_vec_branch
         w_world = result.U_branch[:, None] * np.array([cx, cy, 0.0])
+        return F_world, w_world, result.canopy_mean, (cx, cy), result
+
+    @staticmethod
+    def _write_forces(trees: list, counts: list, F_world: np.ndarray, w_world: np.ndarray) -> None:
+        """Split the pooled per-branch (force, wind) by tree and write them onto
+        each tree's segment storage for ``prune_with_stored_forces`` /
+        ``calculate_stresses_from_stored_forces`` to read."""
         split_at = np.cumsum(counts)[:-1]
         F_per_tree = np.split(F_world, split_at)
         w_per_tree = np.split(w_world, split_at)
@@ -213,16 +235,35 @@ class MomentumWindBridge:
             t.set_segment_forces_batch(Ft)
             t.set_segment_winds_batch(wt)
 
-        # Canopy-mean over occupied cells (ε convergence thermometer only —
-        # pruning reads the per-branch forces above, not this scalar).
-        Nx = len(cell_bounds_x) - 1
-        Ny = len(cell_bounds_y) - 1
-        Nz = len(cell_bounds_z) - 1
-        mid = start + 0.5 * L[:, None] * axis
-        i_idx = np.clip(np.searchsorted(cell_bounds_x, mid[:, 0], side="right") - 1, 0, Nx - 1)
-        j_idx = np.clip(np.searchsorted(cell_bounds_y, mid[:, 1], side="right") - 1, 0, Ny - 1)
-        k_idx = np.clip(np.searchsorted(cell_bounds_z, mid[:, 2], side="right") - 1, 0, Nz - 1)
-        return float(np.mean(result.U_out[k_idx, j_idx, i_idx]))
+    def _solve_and_store(
+        self,
+        trees: list,
+        counts: list,
+        start: np.ndarray,
+        axis: np.ndarray,
+        D: np.ndarray,
+        L: np.ndarray,
+        *,
+        theta: float,
+        U_uniform: float | None,
+        amp: float,
+    ) -> float:
+        """Solve one direction, store ``last_result`` / ``last_wind_direction``,
+        and write the per-branch force + local wind onto each tree. Used by the
+        pruning ``__call__`` and single-angle :meth:`sense`. Returns the
+        canopy-mean wind magnitude."""
+        F_world, w_world, u_mag, wind_dir, result = self._solve_world_forces(
+            start, axis, D, L, theta=theta, U_uniform=U_uniform, amp=amp
+        )
+        self.last_result = result
+        self.last_wind_direction = wind_dir
+        self._write_forces(trees, counts, F_world, w_world)
+        return u_mag
+
+    def _resolve_threads(self, n_angles: int) -> int:
+        if self.sensing_threads is not None:
+            return max(1, self.sensing_threads)
+        return max(1, min(n_angles, os.cpu_count() or 1))
 
     def __call__(
         self,
@@ -282,6 +323,57 @@ class MomentumWindBridge:
         start, axis, D, L, counts = self._pool(trees)
         self._solve_and_store(trees, counts, start, axis, D, L, theta=theta, U_uniform=1.0, amp=1.0)
 
+    def solve_directions(self, context: PyTree | Forest, thetas):
+        """Step 26e: solve every sensing direction in ``thetas`` at a uniform
+        inlet U = 1 **in parallel** and return ``(trees, counts, per_angle)``
+        where ``per_angle[k] = (F_world, w_world)`` is the pooled per-branch
+        screened force + local wind (world frame) for ``thetas[k]``.
+
+        The solves are independent and the C++ kernel releases the GIL, so they
+        fan out over a thread pool (Step 26d measured this is the lever once the
+        kernel is GIL-free — a thread pool over the old NumPy column march ran
+        at 0.67×). This method does **not** mutate the trees; the caller writes
+        each angle's forces sequentially (via :meth:`_write_forces`) and runs
+        the stress pass, so the per-angle max-stress reduction stays
+        deterministic and thread-count-independent."""
+        trees = self._trees_of(context)
+        if not trees or all(t.get_number_of_branches() == 0 for t in trees):
+            return trees, [], []
+        start, axis, D, L, counts = self._pool(trees)
+        thetas = list(thetas)
+
+        def work(theta: float):
+            # Step 26f: fully-consolidated C++ solve (rotation + grid build +
+            # inflow + march + world-frame force all in the nogil kernel), so
+            # the per-angle solves run concurrently. Sensing uses a uniform
+            # inlet U = 1 (the wind scale, still screened down the canopy).
+            return compute_momentum_wind_world(
+                start,
+                axis,
+                D,
+                L,
+                theta=theta,
+                grid_size=self.grid_size,
+                pad_x=self.pad_x,
+                pad_y=self.pad_y,
+                pad_z=self.pad_z,
+                U_uniform=1.0,
+                ua=self.ua,
+                z0=self.z0,
+                kappa=self.kappa,
+                C_D=self.C_D,
+                nu_diff=self.nu_diff,
+                diffusion_per_line=self.diffusion_per_line,
+            )
+
+        n_workers = self._resolve_threads(len(thetas))
+        if n_workers > 1 and len(thetas) > 1:
+            with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                per_angle = list(ex.map(work, thetas))
+        else:
+            per_angle = [work(t) for t in thetas]
+        return trees, counts, per_angle
+
 
 def make_momentum_wind_fn(
     *,
@@ -296,6 +388,7 @@ def make_momentum_wind_fn(
     U_uniform: float | None = None,
     C_D: float = 1.0,
     diffusion_per_line: bool = True,
+    sensing_threads: int | None = None,
     angle_sampler: Callable[[np.random.Generator, int], np.ndarray] | None = None,
     amplitude_sampler: Callable[[np.random.Generator, int], np.ndarray] | None = None,
 ) -> MomentumWindBridge:
@@ -321,6 +414,7 @@ def make_momentum_wind_fn(
         U_uniform=U_uniform,
         C_D=C_D,
         diffusion_per_line=diffusion_per_line,
+        sensing_threads=sensing_threads,
         angle_sampler=angle_sampler,
         amplitude_sampler=amplitude_sampler,
     )

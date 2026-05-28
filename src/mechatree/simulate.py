@@ -103,12 +103,30 @@ def _sense_canopy(
     those paths byte-identical (no extra RNG draws)."""
     if wind_uses_stored_forces and trees:
         angles = wind_fn.sensing_angles(rng, n_sensing_angles)
-        for k, theta in enumerate(angles):
-            wind_fn.sense(context, theta)
-            for tree in trees:
-                calculate_stresses_from_stored_forces(
-                    tree, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy, reset_max=(k == 0)
-                )
+        if hasattr(wind_fn, "solve_directions"):
+            # Step 26e: solve the independent directions in parallel (the
+            # GIL-free C++ kernel lets a thread pool overlap them), then write
+            # each angle's screened forces + run the stress pass sequentially so
+            # the per-branch max-stress reduction stays deterministic.
+            _trees, counts, per_angle = wind_fn.solve_directions(context, angles)
+            split_at = np.cumsum(counts)[:-1] if counts else np.array([], dtype=int)
+            for k, (f_world, w_world) in enumerate(per_angle):
+                f_per = np.split(f_world, split_at)
+                w_per = np.split(w_world, split_at)
+                for tree, ft, wt in zip(trees, f_per, w_per, strict=True):
+                    tree.set_segment_forces_batch(ft)
+                    tree.set_segment_winds_batch(wt)
+                for tree in trees:
+                    calculate_stresses_from_stored_forces(
+                        tree, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy, reset_max=(k == 0)
+                    )
+        else:
+            for k, theta in enumerate(angles):
+                wind_fn.sense(context, theta)
+                for tree in trees:
+                    calculate_stresses_from_stored_forces(
+                        tree, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy, reset_max=(k == 0)
+                    )
     else:
         for tree in trees:
             calculate_stresses(tree, leaf_drag_S0=leaf_drag_S0, cauchy=cauchy)
@@ -553,6 +571,7 @@ def _resolve_wind_fn(config: Config | TreeConfig) -> WindFn:
             kappa=wc.momentum_kappa,
             U_uniform=wc.momentum_U_uniform,
             C_D=wc.C_D,
+            sensing_threads=wc.momentum_sensing_threads,
             angle_sampler=angle_sampler,
             amplitude_sampler=amp_sampler,
         )

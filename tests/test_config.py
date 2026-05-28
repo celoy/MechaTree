@@ -258,7 +258,7 @@ def test_windconfig_momentum_u_uniform_yaml_roundtrip(tmp_path):
 
 
 def test_windconfig_n_sensing_angles_default_and_validation():
-    assert WindConfig().n_sensing_angles == 2
+    assert WindConfig().n_sensing_angles == 4
     with pytest.raises(ValueError, match="n_sensing_angles"):
         WindConfig(n_sensing_angles=0)
 

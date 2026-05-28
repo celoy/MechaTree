@@ -253,10 +253,14 @@ class WindConfig:
     amplitude_cdf: str | None = None
     angle_cdf: str | None = None
     # Step 26c/26d: number of screened directions the momentum sensing sweep
-    # evaluates per generation, each a fresh random draw from angle_cdf. 2 is
-    # the default (each ~halves the sensing wall-clock vs 4); over generations
-    # the random redraw still integrates the directional load.
-    n_sensing_angles: int = 2
+    # evaluates per generation, each a fresh random draw from angle_cdf. Default
+    # 4 (raised from 2 in Step 26f): once the GIL-free kernel parallelises the
+    # solves, on a multicore box 4 angles fan out to 4 threads and cost ~the
+    # same wall-clock as 2 (~the per-sweep memory-bandwidth floor), so the finer
+    # directional-load envelope is nearly free. On a thread-limited machine 4
+    # costs ~2x; over generations the random redraw integrates the load either
+    # way. Drop to 2 (or 1) if running single-core.
+    n_sensing_angles: int = 4
     # Momentum-wind CFD parameters (only used when model='momentum').
     # Defaults: log-law inflow with ua=0.4, z0=0.1, kappa=0.41; cell
     # padding around the canopy bounding box; single dimensionless
@@ -273,6 +277,11 @@ class WindConfig:
     # height-independent constant inflow U_in = momentum_U_uniform
     # and the log-law (ua/z0/kappa) is ignored. ``None`` keeps the log-law.
     momentum_U_uniform: float | None = None
+    # Step 26e: thread-pool size for the parallel n_sensing_angles momentum
+    # solves (the GIL-free C++ kernel lets them overlap). ``None`` → auto
+    # (min(n_sensing_angles, cpu_count)); 1 forces serial. Results are
+    # thread-count-independent, so this is a pure perf knob.
+    momentum_sensing_threads: int | None = None
 
     def __post_init__(self) -> None:
         if self.max_pruning_iterations < 1:
@@ -328,6 +337,11 @@ class WindConfig:
                 raise ValueError(
                     "WindConfig.momentum_U_uniform must be positive when set, "
                     f"got {self.momentum_U_uniform}"
+                )
+            if self.momentum_sensing_threads is not None and self.momentum_sensing_threads < 1:
+                raise ValueError(
+                    "WindConfig.momentum_sensing_threads must be >= 1 when set, "
+                    f"got {self.momentum_sensing_threads}"
                 )
 
 

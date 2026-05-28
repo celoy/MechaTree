@@ -60,6 +60,10 @@ class MomentumWindResult:
     y_centers: np.ndarray
     z_centers: np.ndarray
     wind_direction: tuple[float, float]
+    # Step 26f: mean of U_out over the cells containing branches (the ε
+    # convergence thermometer), computed in the C++ kernel when requested.
+    # ``nan`` when not computed (the NumPy reference path leaves it unset).
+    canopy_mean: float = float("nan")
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -266,6 +270,177 @@ def compute_momentum_wind(
     )
 
 
+def compute_momentum_wind_native(
+    start: np.ndarray,
+    axis: np.ndarray,
+    D: np.ndarray,
+    L: np.ndarray,
+    *,
+    cell_bounds_x: np.ndarray,
+    cell_bounds_y: np.ndarray,
+    cell_bounds_z: np.ndarray,
+    grid_size: float,
+    U_infty: np.ndarray,
+    C_D: float = 1.0,
+    nu_diff: float = 0.03,
+    diffusion_per_line: bool = True,
+    wind_direction: tuple[float, float] = (1.0, 0.0),
+    cos_theta: float = 1.0,
+    sin_theta: float = 0.0,
+    compute_canopy_mean: bool = False,
+) -> MomentumWindResult:
+    """GIL-free C++ equivalent of :func:`compute_momentum_wind`.
+
+    Backed by ``mechatree._core._core.momentum_solve_kernel`` (a ``nogil``
+    column march), so the independent sensing-sweep solves can run on a thread
+    pool. Numerically equivalent to the NumPy reference to atol 1e-10; the
+    NumPy version stays the readable spec + the equivalence-test oracle.
+
+    Same signature + return type as :func:`compute_momentum_wind`. Step 26f adds
+    ``cos_theta`` / ``sin_theta`` (rotate the per-branch ``F_vec`` output to the
+    world frame in C++; the default ``(1, 0)`` leaves it in the solve frame, so
+    the equivalence test against the storm-frame NumPy reference still holds) and
+    ``compute_canopy_mean`` (have the kernel return the canopy-mean directly,
+    replacing a Python ``searchsorted``).
+    """
+    from mechatree._core._core import momentum_solve_kernel
+
+    Nx = int(cell_bounds_x.size - 1)
+    Ny = int(cell_bounds_y.size - 1)
+    Nz = int(cell_bounds_z.size - 1)
+    n = int(start.shape[0])
+
+    # Contiguous float64 views for the buffer protocol.
+    start_c = np.ascontiguousarray(start, dtype=np.float64)
+    axis_c = np.ascontiguousarray(axis, dtype=np.float64)
+    D_c = np.ascontiguousarray(D, dtype=np.float64)
+    L_c = np.ascontiguousarray(L, dtype=np.float64)
+    cbx = np.ascontiguousarray(cell_bounds_x, dtype=np.float64)
+    cby = np.ascontiguousarray(cell_bounds_y, dtype=np.float64)
+    cbz = np.ascontiguousarray(cell_bounds_z, dtype=np.float64)
+    U_inf = np.ascontiguousarray(U_infty, dtype=np.float64)
+
+    U_out = np.empty(Nz * Ny * Nx, dtype=np.float64)
+    U_in_grid = np.empty(Nz * Ny * Nx, dtype=np.float64)
+    F_D_cell = np.empty(Nz * Ny * Nx, dtype=np.float64)
+    U_branch = np.zeros(n, dtype=np.float64)
+    F_N_branch = np.zeros(n, dtype=np.float64)
+    F_D_branch = np.zeros(n, dtype=np.float64)
+    F_vec_branch = np.zeros((n, 3), dtype=np.float64)
+    canopy_buf = np.zeros(1, dtype=np.float64) if compute_canopy_mean else None
+
+    momentum_solve_kernel(
+        start_c,
+        axis_c,
+        D_c,
+        L_c,
+        cbx,
+        cby,
+        cbz,
+        float(grid_size),
+        U_inf,
+        float(C_D),
+        float(nu_diff),
+        bool(diffusion_per_line),
+        U_out,
+        U_in_grid,
+        F_D_cell,
+        U_branch,
+        F_N_branch,
+        F_D_branch,
+        F_vec_branch,
+        float(cos_theta),
+        float(sin_theta),
+        canopy_buf,
+    )
+    canopy_mean = float(canopy_buf[0]) if canopy_buf is not None else float("nan")
+
+    x_centers = 0.5 * (cbx[:-1] + cbx[1:])
+    y_centers = 0.5 * (cby[:-1] + cby[1:])
+    z_centers = 0.5 * (cbz[:-1] + cbz[1:])
+
+    return MomentumWindResult(
+        U_out=U_out.reshape(Nz, Ny, Nx),
+        U_in_grid=U_in_grid.reshape(Nz, Ny, Nx),
+        F_D_cell=F_D_cell.reshape(Nz, Ny, Nx),
+        U_branch=U_branch,
+        F_N_branch=F_N_branch,
+        F_D_branch=F_D_branch,
+        F_vec_branch=F_vec_branch,
+        cell_bounds_x=cbx,
+        cell_bounds_y=cby,
+        cell_bounds_z=cbz,
+        x_centers=x_centers,
+        y_centers=y_centers,
+        z_centers=z_centers,
+        wind_direction=wind_direction,
+        canopy_mean=canopy_mean,
+    )
+
+
+def compute_momentum_wind_world(
+    start: np.ndarray,
+    axis: np.ndarray,
+    D: np.ndarray,
+    L: np.ndarray,
+    *,
+    theta: float,
+    grid_size: float,
+    pad_x: float,
+    pad_y: float,
+    pad_z: float,
+    U_uniform: float | None = None,
+    ua: float = 0.4,
+    z0: float = 0.1,
+    kappa: float = 0.41,
+    amp: float = 1.0,
+    C_D: float = 1.0,
+    nu_diff: float = 0.03,
+    diffusion_per_line: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Consolidated sensing solve (Step 26f): rotation + grid build + inflow +
+    march + world-frame force all in C++.
+
+    Takes the pooled **unrotated** per-branch geometry + the storm angle
+    ``theta`` and returns ``(F_world, w_world)`` — both ``(n, 3)`` — the
+    per-branch force and local wind in the world frame. No grid arrays are
+    produced (built as kernel scratch); the sensing sweep only needs the
+    per-branch fields. Equivalent to the Python rotation + grid +
+    :func:`compute_momentum_wind` + force-rotation pipeline to atol 1e-10.
+    """
+    from mechatree._core._core import momentum_solve_world_kernel
+
+    n = int(start.shape[0])
+    start_c = np.ascontiguousarray(start, dtype=np.float64)
+    axis_c = np.ascontiguousarray(axis, dtype=np.float64)
+    D_c = np.ascontiguousarray(D, dtype=np.float64)
+    L_c = np.ascontiguousarray(L, dtype=np.float64)
+    F_world = np.zeros((n, 3), dtype=np.float64)
+    w_world = np.zeros((n, 3), dtype=np.float64)
+    momentum_solve_world_kernel(
+        start_c,
+        axis_c,
+        D_c,
+        L_c,
+        float(theta),
+        float(grid_size),
+        float(pad_x),
+        float(pad_y),
+        float(pad_z),
+        float(U_uniform) if U_uniform is not None else -1.0,
+        float(ua),
+        float(z0),
+        float(kappa),
+        float(amp),
+        float(C_D),
+        float(nu_diff),
+        bool(diffusion_per_line),
+        F_world,
+        w_world,
+    )
+    return F_world, w_world
+
+
 def _diffuse_slice_into(
     U_prev: np.ndarray,
     nu_diff: float,
@@ -315,4 +490,9 @@ def _diffuse_slice_into(
     np.divide(neighbour_sum, w_buf, out=out)
 
 
-__all__ = ["MomentumWindResult", "compute_momentum_wind"]
+__all__ = [
+    "MomentumWindResult",
+    "compute_momentum_wind",
+    "compute_momentum_wind_native",
+    "compute_momentum_wind_world",
+]

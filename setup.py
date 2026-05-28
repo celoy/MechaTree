@@ -102,6 +102,7 @@ extensions = [
             str(CORE / "growth.cpp"),
             str(CORE / "pruning.cpp"),
             str(CORE / "light.cpp"),
+            str(CORE / "momentum.cpp"),
         ],
         include_dirs=[str(CORE)],
         language="c++",
