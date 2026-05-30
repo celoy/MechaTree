@@ -14,6 +14,7 @@ genome managed to grow in the time it had".
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,7 @@ def run_tournament(
     archive_every: int | None = None,
     archive_dir: Path | str | None = None,
     champions_path: Path | str | None = None,
+    resume_from: Path | str | None = None,
     on_step: OnStep | None = None,
 ) -> ForestEvolutionResult:
     """Run a Darwinian-island tournament on a Forest.
@@ -92,17 +94,37 @@ def run_tournament(
     champions_path
         If set, after the loop curate the final population and write a
         champion JSON to this path.
+    resume_from
+        Path to an ``archive_XXXXXXXX.json`` snapshot to resume from.
+        When set, the run starts at ``generation + 1`` with the surviving
+        population from that snapshot. Overrides ``initial_genomes``.
     on_step
         Optional ``(generation, result, stats)`` callback.
 
     Returns
     -------
     ForestEvolutionResult
+        On a resumed run, ``history`` only covers the generations from
+        ``start_gen`` to ``n_generations - 1`` (i.e., the resumed portion).
+        To reconstruct a full run history, concatenate the history from
+        prior archive snapshots with ``result.history``.
     """
     rng = np.random.default_rng(seed)
 
+    start_gen = 0
     n_init = config.forest.n_trees_init
-    if initial_genomes is None:
+
+    if resume_from is not None:
+        # Load the snapshot and resume from the next generation.
+        resume_path = Path(resume_from)
+        start_gen, founders, _metas = archive.load_snapshot(resume_path)
+        start_gen += 1  # snapshot contains generation N; resume from N+1
+        # Patch config to accept the (typically smaller) surviving population.
+        config = dataclasses.replace(
+            config,
+            forest=dataclasses.replace(config.forest, n_trees_init=len(founders)),
+        )
+    elif initial_genomes is None:
         founders = [Genome.random(rng, lineage_id=i) for i in range(n_init)]
     else:
         if len(initial_genomes) != n_init:
@@ -132,7 +154,7 @@ def run_tournament(
         archive_dir=archive_path,
     )
 
-    for gen in range(n_generations):
+    for gen in range(start_gen, n_generations):
         stats = forest.step(gen)
         history.append(stats)
         if archive_every is not None and gen % archive_every == 0:

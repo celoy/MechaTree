@@ -1192,7 +1192,7 @@ wheels = [
 
 [[package]]
 name = "mechatree"
-version = "0.0.0.dev0"
+version = "0.1.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "kaleido" },
@@ -1207,6 +1207,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "sympy" },
 ]
 docs = [
     { name = "furo" },
@@ -1239,6 +1240,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=7" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5" },
+    { name = "sympy", marker = "extra == 'dev'", specifier = ">=1.12" },
     { name = "sympy", marker = "extra == 'sympy'", specifier = ">=1.12" },
 ]
 provides-extras = ["dev", "docs", "notebooks", "sympy"]

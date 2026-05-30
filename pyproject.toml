@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=68", "wheel", "Cython>=3.0"]
+requires = ["setuptools>=68", "wheel", "Cython>=3.0", "packaging>=24.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mechatree"
-version = "0.0.0.dev0"
+version = "0.1.0a1"
 description = "Mechanical simulation of tree growth in response to wind and light."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["tree", "biomechanics", "growth", "simulation", "allometry", "wind"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS",

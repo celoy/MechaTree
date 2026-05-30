@@ -1,0 +1,50 @@
+# Tournament-scale config for reproducing Eloy et al. (2017, Nat Commun)
+# Evolutionary tournament at island scale (R=200 L, N_init=20000).
+#
+# Usage:
+#   python scripts/run_tournament.py --config examples/tournament_natcomm.yaml \
+#     --n-gens 100000 --n-replicates 3 --n-workers 3
+#
+# Fortran parameters (from Evolution.ini and Forest.ini):
+#   Nevolution = 100000 generations
+#   Ninit = 10000 trees (Python: 20000, see size below)
+#   SizeForest = 100.0 (Python: 200.0, see size below)
+#   Pmutation = 0.05, STDmutation = 0.005
+#
+# Scale note: Fortran twig_length was scaled to control tree density; Python has
+# a fixed twig_length=1.0 L. To match the ~0.16 trees/L² forest density from
+# the paper, with 20000 founders, the disk radius must be R=200 L (not 100).
+# This is the "R=200 L" referenced in CLAUDE.md.
+
+tree:
+  twig_length: 1.0
+  twig_diameter: 0.1
+  leaf_surface: 0.25
+  cauchy: 4.0e-5           # Fortran: 2.0e-5. Python: 4.0e-5 (×2 to restore ½ρU²)
+  volume_ratio_leaf: 4.0   # Nat Commun reference (SI Fig. S12: V_prod = 4 V_0 l)
+  maintenance_h: 0.02
+
+light:
+  size_leaf: 1.0
+  n_elevations: 4
+  n_azimuths: 8
+  leaf_transparency: 0.5   # Eloy et al. (2017) value
+
+forest:
+  size: 200.0              # R=200 L disk radius
+  n_trees_init: 20000      # Fortran Ninit=10000 at Fortran scale → 20000 at Python scale
+  n_trees_max: 100000      # Fortran Ntrees_max=100000
+  min_branches: 11
+  min_age_for_undersize: 5
+  max_age: 1000
+
+genome:
+  safety: 3.0              # Nat Commun evolved value (per-tree override)
+  p_seeds: 0.1
+  p_leaves: 0.5
+  phototropism: 0.5
+
+wind:
+  model: default           # Fortran-faithful: uniform rotating storm per generation
+
+n_generations: 100000      # Fortran Nevolution=100000

@@ -76,7 +76,7 @@ from mechatree.wind.distributions import (
 )
 from mechatree.wind.replay import StormPreSnapshot, StormSnapshot, run_storm_replay
 
-__version__ = "0.0.0.dev0"
+__version__ = "0.1.0a1"
 
 
 __all__ = [
