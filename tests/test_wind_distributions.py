@@ -7,6 +7,13 @@ import math
 import numpy as np
 import pytest
 
+try:
+    import sympy  # noqa: F401
+
+    HAS_SYMPY = True
+except ImportError:
+    HAS_SYMPY = False
+
 from mechatree.wind.distributions import (
     Distribution,
     default_amplitude_distribution,
@@ -28,6 +35,7 @@ def test_distribution_validation():
         Distribution(cdf_expr="x", var_name="x", support=(0, 1), n_grid=4)
 
 
+@pytest.mark.skipif(not HAS_SYMPY, reason="requires sympy")
 def test_distribution_rejects_extra_free_symbols():
     d = Distribution(cdf_expr="a + b", var_name="a", support=(0.0, math.inf))
     with pytest.raises(ValueError, match="unexpected free symbols"):
@@ -43,6 +51,7 @@ def test_default_amplitude_sampler_mean_matches_theory():
     assert samples.min() >= 0.835 - 1e-9
 
 
+@pytest.mark.skipif(not HAS_SYMPY, reason="requires sympy")
 def test_default_amplitude_via_sympy_matches_in_distribution():
     """Pure-NumPy fast path and SymPy CDF-inversion path produce the
     same distribution (sorted samples should match within Monte-Carlo
@@ -66,6 +75,7 @@ def test_uniform_angle_sampler_covers_support():
     assert samples.mean() == pytest.approx(math.pi, rel=0.02)
 
 
+@pytest.mark.skipif(not HAS_SYMPY, reason="requires sympy")
 def test_uniform_angle_via_sympy_works():
     d = uniform_angle_distribution()
     samples = d.sampler()(np.random.default_rng(7), 10_000)
@@ -74,6 +84,7 @@ def test_uniform_angle_via_sympy_works():
     assert samples.mean() == pytest.approx(math.pi, rel=0.02)
 
 
+@pytest.mark.skipif(not HAS_SYMPY, reason="requires sympy")
 def test_rayleigh_via_numerical_fallback():
     """A Rayleigh CDF: SymPy symbolic inversion may return the negative
     root; the support-check rejects it and the sampler falls back to
@@ -84,6 +95,7 @@ def test_rayleigh_via_numerical_fallback():
     assert samples.mean() == pytest.approx(math.sqrt(math.pi / 2), rel=0.02)
 
 
+@pytest.mark.skipif(not HAS_SYMPY, reason="requires sympy")
 def test_numerical_fallback_for_piecewise_cdf():
     """Piecewise CDFs that SymPy can't invert symbolically should go
     through the np.interp lookup path."""
