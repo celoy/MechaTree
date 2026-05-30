@@ -8,7 +8,7 @@ version = "0.1.0a1"
 description = "Mechanical simulation of tree growth in response to wind and light."
 readme = "README.md"
 requires-python = ">=3.10"
-license = "GPL-3.0-or-later"
+license = { text = "GPL-3.0-or-later" }
 authors = [
     { name = "Christophe Eloy", email = "christopheloy@gmail.com" },
 ]
