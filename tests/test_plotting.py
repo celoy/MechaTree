@@ -2,6 +2,13 @@ import numpy as np
 import pytest
 from plotly.graph_objs import Figure, Mesh3d
 
+try:
+    import kaleido  # noqa: F401
+
+    HAS_KALEIDO = True
+except ImportError:
+    HAS_KALEIDO = False
+
 from mechatree import PyTree
 from mechatree.config import Config, ForestConfig
 from mechatree.forest import Forest
@@ -42,6 +49,7 @@ def test_plot_2d_returns_figure(small_2d_tree):
     assert isinstance(fig, Figure)
 
 
+@pytest.mark.skipif(not HAS_KALEIDO, reason="requires kaleido with Chrome")
 def test_plot_2d_saves_png(small_2d_tree, tmp_path):
     plot_2d(small_2d_tree, iteration=1, out_dir=tmp_path)
     out_file = tmp_path / "fig0001.png"

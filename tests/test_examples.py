@@ -9,6 +9,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+try:
+    import kaleido  # noqa: F401
+
+    HAS_KALEIDO = True
+except ImportError:
+    HAS_KALEIDO = False
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
 
@@ -31,6 +40,7 @@ def test_random_growth_runs(tmp_path):
     assert "Final tree size" in result.stdout
 
 
+@pytest.mark.skipif(not HAS_KALEIDO, reason="requires kaleido with Chrome")
 def test_self_avoiding_runs(tmp_path):
     out_dir = tmp_path / "snaps"
     result = _run("self_avoiding.py", "--out-dir", str(out_dir), cwd=tmp_path)
