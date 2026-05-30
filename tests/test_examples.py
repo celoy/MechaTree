@@ -35,9 +35,12 @@ def test_random_growth_runs(tmp_path):
 
 def test_self_avoiding_runs(tmp_path):
     out_dir = tmp_path / "snaps"
-    result = _run("self_avoiding.py", "--out-dir", str(out_dir), cwd=tmp_path)
-    if "Chrome" in result.stderr or "Chrome" in result.stdout:
-        pytest.skip("Chrome not available for kaleido")
+    try:
+        result = _run("self_avoiding.py", "--out-dir", str(out_dir), cwd=tmp_path)
+    except subprocess.CalledProcessError as e:
+        if "Chrome" in e.stderr or "Chrome" in e.stdout:
+            pytest.skip("Chrome not available for kaleido")
+        raise
     pngs = list(out_dir.glob("fig*.png"))
     assert pngs, "self_avoiding should produce at least one snapshot"
     assert "Final coral size" in result.stdout
