@@ -2,11 +2,6 @@ name: Publish to TestPyPI
 
 on:
   workflow_dispatch:
-    inputs:
-      run_id:
-        description: 'Run ID of the Wheels workflow to publish from (leave empty for latest)'
-        required: false
-        type: string
 
 jobs:
   publish:
@@ -14,16 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # required for OIDC trusted publisher
+      actions: read     # required to download artifacts from other workflows
     steps:
-      - name: Download artifacts from latest Wheels run
-        uses: dawidd6/action-download-artifact@v6
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
-          workflow: wheels.yml
-          run_id: ${{ inputs.run_id }}
           path: dist/
 
       - name: List artifacts
-        run: ls -la dist/
+        run: ls -lR dist/
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
