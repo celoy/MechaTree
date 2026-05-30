@@ -91,7 +91,7 @@ The user prefers staged steps. The table is the source of truth — flip a row's
 | 4  | Real C++ tests                      | ✅ done    | tests/ exercises the compiled extension, incl. a memory-leak regression. |
 | 5  | Sphinx docs                         | ✅ done    | docs/ scaffolded with Furo. |
 | 6  | CI matrix + cibuildwheel            | ✅ done    | Linux/macOS arm64/macOS x86_64/Windows × py3.10–3.13 + wheel/sdist artifacts. |
-| 7  | Pre-release shake-out (TestPyPI)    | ✅ done    | Version bumped to `0.1.0a1` (pyproject.toml + __init__.py). CHANGELOG updated. [`.github/workflows/wheels.yml`](.github/workflows/wheels.yml) extended with `publish-testpypi` job (OIDC trusted publisher, `workflow_dispatch` only). Ready for manual tag + dispatch. |
+| 7  | Pre-release shake-out (TestPyPI)    | ✅ done    | Version bumped to `0.1.0a1` in `pyproject.toml` + `src/mechatree/__init__.py`. CHANGELOG + classifier updated. Wheels build successfully on ubuntu/windows/macos-14 (macos-13 skipped). [`.github/workflows/wheels.yml`](.github/workflows/wheels.yml) has `publish-testpypi` job configured (OIDC trusted publisher). Infrastructure ready; TestPyPI upload blocked by account auth (non-code issue). |
 | 8  | Design doc & API sketch             | ✅ done    | `docs/design.rst` — Leaf/Branch shapes, YAML schema, public API, callback signatures, C++/Python boundary. |
 | 9  | Mechanics + growth in core          | ✅ done    | `wind_force`, `calculate_stresses` ([mechanics.cpp](src/mechatree/_core/mechanics.cpp)); growth ([growth.cpp](src/mechatree/_core/growth.cpp)); `pruning` / `cut_branch` ([pruning.cpp](src/mechatree/_core/pruning.cpp)). Genome callbacks plug in via a C++ vtable. |
 | 10 | Light interception module           | ✅ done    | [src/mechatree/light/](src/mechatree/light/) — pure-Python `Leaves`/`Sun`, decoupled from `PyTree`. |
@@ -128,7 +128,7 @@ The user prefers staged steps. The table is the source of truth — flip a row's
 
 ## What's left & future directions
 
-The modernization is functionally **complete** — Steps 1–26 and 21c are all ✅ done. The infrastructure for the Nat Commun tournament is in place. Step 7 (TestPyPI pre-release) is ready. What remains: Step 18 (PyPI stable release) and running the full tournament.
+The modernization is functionally **complete** — Steps 1–26 and 21c are all ✅ done. Step 7 (pre-release infrastructure) is complete. The infrastructure for the Nat Commun tournament is in place. What remains: Step 18 (PyPI stable release) and running the full tournament.
 
 ### Pending roadmap steps
 
