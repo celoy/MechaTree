@@ -38,7 +38,7 @@ def test_self_avoiding_runs(tmp_path):
     try:
         result = _run("self_avoiding.py", "--out-dir", str(out_dir), cwd=tmp_path)
     except subprocess.CalledProcessError as e:
-        if "Chrome" in e.stderr or "Chrome" in e.stdout:
+        if "chrome" in e.stderr.lower() or "kaleido" in e.stderr.lower():
             pytest.skip("Chrome not available for kaleido")
         raise
     pngs = list(out_dir.glob("fig*.png"))

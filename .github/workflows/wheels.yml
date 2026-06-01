@@ -11,6 +11,9 @@ on:
       - '.github/workflows/wheels.yml'
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build_wheels:
     name: Wheels on ${{ matrix.os }}
@@ -21,8 +24,6 @@ jobs:
         include:
           - os: ubuntu-latest
           - os: windows-latest
-          - os: macos-13
-            cibw_archs_macos: x86_64
           - os: macos-14
             cibw_archs_macos: arm64
 
